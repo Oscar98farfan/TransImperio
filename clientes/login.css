@@ -1,0 +1,126 @@
+/* ==========================================
+   LOGIN - TRANSIMPERIO
+========================================== */
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-body, 'Segoe UI', sans-serif);
+    background: #f4f7fb;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-container {
+    width: 100%;
+    padding: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 430px;
+    background: white;
+    border-radius: 18px;
+    padding: 45px;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, .08);
+    text-align: center;
+}
+
+.login-logo {
+    width: 220px;
+    margin-bottom: 25px;
+}
+
+.login-card h1 {
+    margin: 0;
+    color: var(--blue-900);
+    font-size: 30px;
+    font-weight: 700;
+}
+
+.login-description {
+    margin-top: 15px;
+    color: #6b7280;
+    line-height: 1.7;
+    font-size: 15px;
+}
+
+.input-group {
+    margin-top: 25px;
+    text-align: left;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid #d6dce5;
+    font-size: 15px;
+    transition: .3s;
+    box-sizing: border-box;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: #378add;
+    box-shadow: 0 0 0 3px rgba(55, 138, 221, .15);
+}
+
+.login-btn {
+    margin-top: 30px;
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 10px;
+    background: #0b5cab;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: .3s;
+}
+
+.login-btn:hover {
+    background: #084a8a;
+}
+
+#mensaje {
+    margin-top: 18px;
+    min-height: 22px;
+    color: #d32f2f;
+    font-size: 14px;
+}
+
+.back-link {
+    display: inline-block;
+    margin-top: 30px;
+    text-decoration: none;
+    color: #378add;
+    font-weight: 600;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+@media(max-width:600px) {
+    .login-card {
+        padding: 30px;
+    }
+
+    .login-logo {
+        width: 170px;
+    }
+}

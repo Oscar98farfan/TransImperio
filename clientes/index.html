@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Área de Clientes | TRANSIMPERIO</title>
+
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="login.css">
+</head>
+
+<body>
+
+    <main class="login-container">
+
+        <div class="login-card">
+
+            <img src="../assets/images/logo_simplificado.png" alt="TRANSIMPERIO" class="login-logo">
+
+            <h1>Área de Clientes</h1>
+
+            <p class="login-description">
+                Ingresa con tus credenciales para gestionar tus envíos,
+                realizar cargas masivas y consultar el estado de tus guías.
+            </p>
+
+            <form id="loginForm">
+
+                <div class="input-group">
+
+                    <label>Correo electrónico</label>
+
+                    <input type="email" id="email" placeholder="correo@empresa.com" required>
+
+                </div>
+
+                <div class="input-group">
+
+                    <label>Contraseña</label>
+
+                    <input type="password" id="password" placeholder="********" required>
+
+                </div>
+
+                <button type="submit" class="login-btn">
+                    Ingresar
+                </button>
+
+            </form>
+
+            <div id="mensaje"></div>
+
+            <a href="../index.html" class="back-link">
+                ← Volver al sitio web
+            </a>
+
+        </div>
+
+    </main>
+
+    <script src="login.js"></script>
+
+</body>
+
+</html>
