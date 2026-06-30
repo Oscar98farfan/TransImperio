@@ -2,44 +2,55 @@
 // LOGIN TRANSIMPERIO
 // =========================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec"
+const API_URL = "https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec";
+
 const form = document.getElementById("loginForm");
 const mensaje = document.getElementById("mensaje");
 const boton = document.querySelector(".login-btn");
 
-
 form.addEventListener("submit", async function (e) {
     e.preventDefault();
+
     mensaje.innerHTML = "";
     boton.disabled = true;
-    boton.innerHTML = "Ingresando...";
+    boton.textContent = "Ingresando...";
+
     try {
-        const response = await fetch(API_URL, {
+        const res = await fetch(API_URL, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            // SIN headers Content-Type — Apps Script lo requiere así
             body: JSON.stringify({
                 accion: "login",
-                email: document.getElementById("email").value,
+                email: document.getElementById("email").value.trim(),
                 password: document.getElementById("password").value
             })
         });
-        const data = await response.json();
+
+        const data = await res.json();
+
         if (data.ok) {
-            mensaje.style.color = "green";
-            mensaje.innerHTML = "Bienvenido " + data.usuario.Nombre;
+            // Guardar sesión y redirigir al panel
+            sessionStorage.setItem("usuario", JSON.stringify(data.usuario));
+            window.location.href = "panel.html";
         } else {
-            mensaje.style.color = "red";
-            mensaje.innerHTML = data.mensaje;
+            mostrarError(data.mensaje);
         }
+
     } catch (error) {
-        mensaje.style.color = "red";
-        mensaje.innerHTML = "No fue posible conectar con el servidor.";
+        mostrarError("No fue posible conectar con el servidor.");
+        console.error(error);
     }
+
     boton.disabled = false;
-    boton.innerHTML = "Ingresar";
+    boton.textContent = "Ingresar";
 });
+
+function mostrarError(texto) {
+    mensaje.style.color = "#e53e3e";
+    mensaje.textContent = texto;
+}
+
+
 
 // form.addEventListener("submit", function (e) {
 //     e.preventDefault();
