@@ -1,6 +1,4 @@
-// =========================================
-// LOGIN TRANSIMPERIO
-// =========================================
+'use strict';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec";
 
@@ -18,7 +16,7 @@ form.addEventListener("submit", async function (e) {
     try {
         const res = await fetch(API_URL, {
             method: "POST",
-            // SIN headers Content-Type — Apps Script lo requiere así
+            redirect: "follow",           // ← sigue la redirección de Apps Script
             body: JSON.stringify({
                 accion: "login",
                 email: document.getElementById("email").value.trim(),
@@ -26,19 +24,28 @@ form.addEventListener("submit", async function (e) {
             })
         });
 
-        const data = await res.json();
+        // Apps Script a veces devuelve texto plano aunque el mime sea JSON
+        const texto = await res.text();
+
+        let data;
+        try {
+            data = JSON.parse(texto);
+        } catch {
+            console.error("Respuesta no es JSON:", texto);
+            mostrarError("Error del servidor. Revisa que el Web App esté publicado como 'Anyone'.");
+            return;
+        }
 
         if (data.ok) {
-            // Guardar sesión y redirigir al panel
             sessionStorage.setItem("usuario", JSON.stringify(data.usuario));
             window.location.href = "panel.html";
         } else {
             mostrarError(data.mensaje);
         }
 
-    } catch (error) {
+    } catch (err) {
         mostrarError("No fue posible conectar con el servidor.");
-        console.error(error);
+        console.error(err);
     }
 
     boton.disabled = false;
@@ -50,6 +57,19 @@ function mostrarError(texto) {
     mensaje.textContent = texto;
 }
 
+
+// // Agregar esta función al final del archivo
+// async function fetchConReintento(url, opciones, intentos = 2) {
+//     for (let i = 0; i < intentos; i++) {
+//         try {
+//             const res = await fetch(url, opciones);
+//             return res;
+//         } catch (err) {
+//             if (i === intentos - 1) throw err;
+//             await new Promise(r => setTimeout(r, 1500)); // espera 1.5s y reintenta
+//         }
+//     }
+// }
 
 
 // form.addEventListener("submit", function (e) {

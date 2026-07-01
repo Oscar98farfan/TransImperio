@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Cliente | TRANSIMPERIO</title>
+
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="panel.css">
+
+    <!-- SheetJS para leer Excel/CSV en el navegador -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+
+<body class="panel-body">
+
+    <div class="panel-layout">
+
+        <!-- ── SIDEBAR ── -->
+        <aside class="sidebar" id="sidebar">
+
+            <div class="sidebar-header">
+                <img src="../assets/images/logo_simplificado.png" alt="TRANSIMPERIO" class="sidebar-logo">
+                <button class="sidebar-close" id="btnSidebarClose" aria-label="Cerrar menú">✕</button>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-vista="carga-masiva">
+                    <span class="nav-icon">📦</span>
+                    <span class="nav-label">Carga Masiva</span>
+                </button>
+                <button class="nav-item" data-vista="mis-guias">
+                    <span class="nav-icon">🚚</span>
+                    <span class="nav-label">Mis Guías</span>
+                </button>
+                <button class="nav-item" data-vista="seguimiento">
+                    <span class="nav-icon">🔍</span>
+                    <span class="nav-label">Seguimiento</span>
+                </button>
+                <button class="nav-item" data-vista="mi-cuenta">
+                    <span class="nav-icon">👤</span>
+                    <span class="nav-label">Mi Cuenta</span>
+                </button>
+            </nav>
+
+            <button class="logout-btn" id="btnSalir">
+                <span>↩</span> Cerrar sesión
+            </button>
+
+        </aside>
+
+        <!-- ── MAIN ── -->
+        <div class="panel-main">
+
+            <!-- Header -->
+            <header class="panel-header">
+                <button class="hamburger-panel" id="btnMenuPanel" aria-label="Abrir menú">
+                    <span></span><span></span><span></span>
+                </button>
+                <div class="header-user">
+                    <div class="user-avatar" id="userAvatar">—</div>
+                    <span id="nombreUsuario" class="user-name">Cargando…</span>
+                </div>
+            </header>
+
+            <!-- Contenido dinámico -->
+            <main class="panel-content" id="contenido">
+                <!-- Las vistas se inyectan aquí -->
+            </main>
+
+        </div>
+    </div>
+
+    <script src="panel.js"></script>
+</body>
+
+</html>
