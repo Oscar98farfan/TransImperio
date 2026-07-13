@@ -328,6 +328,13 @@
 
 .table-scroll {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+}
+
+.preview-table,
+.guias-table {
+    min-width: 640px;
 }
 
 .preview-table {
@@ -576,14 +583,24 @@
     letter-spacing: 0.3px;
 }
 
-.estado-pendiente {
-    background: #fef9c3;
-    color: #854d0e;
-}
-
-.estado-transito {
+.estado-recepcionado {
     background: #dbeafe;
     color: #1e40af;
+}
+
+.estado-re-recepcionado {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.estado-despachado {
+    background: #cffafe;
+    color: #155e75;
+}
+
+.estado-validar {
+    background: #fef9c3;
+    color: #854d0e;
 }
 
 .estado-entregado {
@@ -591,9 +608,190 @@
     color: #166534;
 }
 
-.estado-novedad {
+.estado-devuelto {
+    background: #fed7aa;
+    color: #9a3412;
+}
+
+.estado-anulada {
     background: #fee2e2;
     color: #991b1b;
+}
+
+.estado-otro {
+    background: var(--gray-100);
+    color: var(--gray-700);
+}
+
+/* ── RESUMEN DE ESTADOS (Mis Guías) ── */
+.guias-resumen {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.stat-mini {
+    flex: 1;
+    min-width: 100px;
+    background: white;
+    border: 1px solid var(--blue-100);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: var(--shadow-card);
+}
+
+.stat-mini-num {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--blue-900);
+    line-height: 1;
+}
+
+.stat-mini-lbl {
+    font-size: 11px;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-top: 4px;
+}
+
+.stat-mini.estado-recepcionado .stat-mini-num {
+    color: #1e40af;
+}
+
+.stat-mini.estado-re-recepcionado .stat-mini-num {
+    color: #3730a3;
+}
+
+.stat-mini.estado-despachado .stat-mini-num {
+    color: #155e75;
+}
+
+.stat-mini.estado-validar .stat-mini-num {
+    color: #854d0e;
+}
+
+.stat-mini.estado-entregado .stat-mini-num {
+    color: #166534;
+}
+
+.stat-mini.estado-devuelto .stat-mini-num {
+    color: #9a3412;
+}
+
+.stat-mini.estado-anulada .stat-mini-num {
+    color: #991b1b;
+}
+
+/* ── FILTROS (Mis Guías) ── */
+.guias-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.filtro-input {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px 14px;
+    border: 1px solid var(--blue-100);
+    border-radius: var(--radius-md);
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--gray-700);
+    outline: none;
+    transition: border-color var(--transition-base);
+}
+
+.filtro-select,
+.filtro-fecha {
+    padding: 10px 12px;
+    border: 1px solid var(--blue-100);
+    border-radius: var(--radius-md);
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--gray-700);
+    background: white;
+    outline: none;
+    transition: border-color var(--transition-base);
+}
+
+.filtro-input:focus,
+.filtro-select:focus,
+.filtro-fecha:focus {
+    border-color: var(--blue-500);
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--blue-700);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 8px 4px;
+    white-space: nowrap;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+/* ── PAGINACIÓN (Mis Guías) ── */
+.paginacion-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.paginacion-numeros {
+    display: flex;
+    gap: 4px;
+}
+
+.btn-pagina,
+.btn-pagina-nav {
+    padding: 8px 14px;
+    border: 1px solid var(--blue-100);
+    border-radius: var(--radius-sm);
+    background: white;
+    color: var(--gray-700);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background var(--transition-base), color var(--transition-base);
+}
+
+.btn-pagina:hover,
+.btn-pagina-nav:hover {
+    background: var(--blue-50);
+}
+
+.btn-pagina.active {
+    background: var(--blue-700);
+    border-color: var(--blue-700);
+    color: white;
+}
+
+.btn-pagina-nav:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pagina-dots {
+    padding: 8px 4px;
+    color: var(--gray-400);
+    font-size: 13px;
 }
 
 /* ════════════════════════════════════════
@@ -782,10 +980,6 @@
     display: block;
 }
 
-
-
-
-
 /* ════════════════════════════════════════
    RESPONSIVE
 ════════════════════════════════════════ */
@@ -857,6 +1051,18 @@
     /* Stats en columna */
     .resultado-stats {
         flex-direction: column;
+    }
+
+    /* Filtros en columna */
+    .guias-filtros {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filtro-input,
+    .filtro-select,
+    .filtro-fecha {
+        width: 100%;
     }
 }
 

@@ -442,10 +442,13 @@ function renderPanelGuias(contenedor) {
 
       <select id="filtroEstado" class="filtro-select">
         <option value="">Todos los estados</option>
-        <option value="Pendiente">Pendiente</option>
-        <option value="En tránsito">En tránsito</option>
+        <option value="Recepcionado">Recepcionado</option>
+        <option value="Re-Recepcionado">Re-Recepcionado</option>
+        <option value="Despachado">Despachado</option>
+        <option value="Validar">Validar</option>
         <option value="Entregado">Entregado</option>
-        <option value="Novedad">Novedad</option>
+        <option value="Devuelto">Devuelto</option>
+        <option value="Anulada">Anulada</option>
       </select>
 
       <select id="filtroDestino" class="filtro-select">
@@ -496,7 +499,7 @@ function aplicarFiltrosGuias() {
       const enDest = String(g.Destinatario || "").toLowerCase().includes(texto);
       if (!enGuia && !enDest) return false;
     }
-    if (estado && (g.EstadoGuia || "Pendiente") !== estado) return false;
+    if (estado && (g.EstadoGuia || "") !== estado) return false;
     if (destino && g.Destino !== destino) return false;
 
     if (desde || hasta) {
@@ -515,11 +518,13 @@ function aplicarFiltrosGuias() {
 
 // ── Tarjetas de resumen (conteo sobre el total, no sobre el filtro) ──
 function renderResumenGuias(guias) {
-  const conteo = { Pendiente: 0, "En tránsito": 0, Entregado: 0, Novedad: 0 };
+  const ESTADOS = ["Recepcionado", "Re-Recepcionado", "Despachado", "Validar", "Entregado", "Devuelto", "Anulada"];
+  const conteo = {};
+  ESTADOS.forEach(e => conteo[e] = 0);
+
   guias.forEach(g => {
-    const est = g.EstadoGuia || "Pendiente";
-    if (conteo[est] === undefined) conteo[est] = 0;
-    conteo[est]++;
+    const est = g.EstadoGuia || "";
+    if (est) conteo[est] = (conteo[est] || 0) + 1;
   });
 
   document.getElementById("guiasResumen").innerHTML = `
@@ -527,22 +532,11 @@ function renderResumenGuias(guias) {
       <span class="stat-mini-num">${guias.length}</span>
       <span class="stat-mini-lbl">Total</span>
     </div>
-    <div class="stat-mini pendiente">
-      <span class="stat-mini-num">${conteo["Pendiente"] || 0}</span>
-      <span class="stat-mini-lbl">Pendiente</span>
-    </div>
-    <div class="stat-mini transito">
-      <span class="stat-mini-num">${conteo["En tránsito"] || 0}</span>
-      <span class="stat-mini-lbl">En tránsito</span>
-    </div>
-    <div class="stat-mini entregado">
-      <span class="stat-mini-num">${conteo["Entregado"] || 0}</span>
-      <span class="stat-mini-lbl">Entregado</span>
-    </div>
-    <div class="stat-mini novedad">
-      <span class="stat-mini-num">${conteo["Novedad"] || 0}</span>
-      <span class="stat-mini-lbl">Novedad</span>
-    </div>
+    ${ESTADOS.map(est => `
+      <div class="stat-mini ${claseEstado(est)}">
+        <span class="stat-mini-num">${conteo[est] || 0}</span>
+        <span class="stat-mini-lbl">${est}</span>
+      </div>`).join("")}
   `;
 }
 
@@ -739,15 +733,21 @@ function mostrarError(idContenedor, html) {
     <div class="alerta-error">⚠️ ${html}</div>`;
 }
 
-function badgeEstado(estado) {
+function claseEstado(estado) {
   const mapa = {
-    "Pendiente": "estado-pendiente",
-    "En tránsito": "estado-transito",
+    "Recepcionado": "estado-recepcionado",
+    "Re-Recepcionado": "estado-re-recepcionado",
+    "Despachado": "estado-despachado",
+    "Validar": "estado-validar",
     "Entregado": "estado-entregado",
-    "Novedad": "estado-novedad"
+    "Devuelto": "estado-devuelto",
+    "Anulada": "estado-anulada"
   };
-  const cls = mapa[estado] || "estado-pendiente";
-  return `<span class="estado ${cls}">${estado || "Pendiente"}</span>`;
+  return mapa[estado] || "estado-otro";
+}
+
+function badgeEstado(estado) {
+  return `<span class="estado ${claseEstado(estado)}">${estado || "Sin estado"}</span>`;
 }
 
 function formatearFecha(valor) {
@@ -763,6 +763,14 @@ function formatearPesos(valor) {
     style: "currency", currency: "COP", maximumFractionDigits: 0
   }).format(valor);
 }
+
+
+
+
+
+
+
+
 
 
 // /* ============================================================
