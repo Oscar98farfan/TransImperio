@@ -1194,3 +1194,103 @@
     .visor-pdf-caja { height: 100vh; border-radius: 0; }
     .visor-pdf-barra { flex-wrap: wrap; }
 }
+
+/* ════════════════════════════════════════
+   CORRECCIÓN MÓVIL: la página completa hace scroll
+   (antes el body tenía overflow:hidden y el contenido
+   quedaba debajo de la pantalla sin poder bajar)
+════════════════════════════════════════ */
+@media (max-width: 900px) {
+    .panel-body   { overflow: visible; height: auto; }
+    .panel-layout { height: auto; min-height: 100vh; overflow: visible; }
+    .panel-main   { flex: none; height: auto; min-height: 100vh; overflow: visible; }
+    .panel-content { flex: none; overflow: visible; }
+
+    /* Filtros compactos: buscador arriba, selects y fechas de a dos */
+    .guias-filtros {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    .guias-filtros .filtro-input { grid-column: 1 / -1; min-width: 0; }
+    .guias-filtros .filtro-select,
+    .guias-filtros .filtro-fecha { min-width: 0; width: 100%; }
+    .guias-filtros .btn-link { grid-column: 1 / -1; justify-self: end; padding: 2px 4px; }
+
+    /* Barra de acciones de PDF */
+    .guias-acciones { padding: 10px 12px; }
+    .guias-acciones-der { width: 100%; }
+    .guias-acciones-der .btn-primary,
+    .guias-acciones-der .btn-secundario { flex: 1; justify-content: center; width: auto; }
+
+    /* Encabezado de Mis Guías con botón Actualizar */
+    .vista-header-flex { align-items: flex-start; }
+    .actualizar-wrap { width: 100%; justify-content: space-between; }
+
+    /* Tabla: se desliza de lado; columnas más compactas */
+    .guias-table th, .guias-table td { padding: 10px 10px; }
+    .guias-table td { white-space: nowrap; }
+}
+
+/* ════════════════════════════════════════
+   MIS GUÍAS EN CELULAR: cada guía es una tarjeta
+════════════════════════════════════════ */
+@media (max-width: 640px) {
+    .guias-table-wrap { background: transparent; border: none; box-shadow: none; overflow: visible; }
+    .guias-table-wrap .table-scroll { overflow: visible; }
+    .guias-table, .guias-table tbody { display: block; width: 100%; min-width: 0 !important; }
+    .guias-table tbody tr, .guias-table td { min-width: 0; max-width: 100%; }
+    .guias-table td[data-label="Destinatario"] { overflow-wrap: anywhere; }
+
+    /* Encabezado: solo queda la casilla "seleccionar página" */
+    .guias-table thead { display: block; }
+    .guias-table thead tr { display: flex; align-items: center; gap: 8px; background: var(--blue-900); border-radius: var(--radius-md); }
+    .guias-table thead th { display: none; }
+    .guias-table thead th.col-check { display: flex; align-items: center; gap: 8px; width: auto; padding: 10px 12px; }
+    .guias-table thead th.col-check::after { content: "Seleccionar página"; font-size: 12px; text-transform: none; letter-spacing: 0; }
+
+    .guias-table tbody tr {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 4px 10px;
+        align-items: center;
+        margin-top: 10px;
+        padding: 12px 14px;
+        background: white;
+        border: 1px solid var(--blue-100);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-card);
+    }
+    .guias-table tbody tr:hover td { background: transparent; }
+    .guias-table tbody tr.fila-sel { border-color: var(--blue-500); background: var(--blue-50); }
+    .guias-table tbody tr.fila-sel td { background: transparent; }
+
+    .guias-table td { display: block; padding: 0; border: none; white-space: normal; font-size: 13px; }
+    .guias-table td.col-check { grid-row: 1; grid-column: 1; width: auto; }
+    .guias-table td.col-guia  { grid-row: 1; grid-column: 2; font-size: 15px; }
+    .guias-table td.col-estado { grid-row: 1; grid-column: 3; }
+
+    /* Fecha, destinatario, destino y valor con su etiqueta */
+    .guias-table td[data-label="Fecha"],
+    .guias-table td[data-label="Destinatario"],
+    .guias-table td[data-label="Destino"],
+    .guias-table td[data-label="Valor"] { grid-column: 1 / -1; display: flex; gap: 8px; }
+    .guias-table td[data-label="Fecha"]::before,
+    .guias-table td[data-label="Destinatario"]::before,
+    .guias-table td[data-label="Destino"]::before,
+    .guias-table td[data-label="Valor"]::before {
+        content: attr(data-label);
+        min-width: 92px;
+        color: var(--gray-400);
+        font-size: 12px;
+    }
+
+    /* Botones de PDF abajo, grandes para el dedo */
+    .guias-table td.col-pdf {
+        grid-column: 1 / -1;
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+        margin-top: 8px; padding-top: 10px;
+        border-top: 1px solid var(--gray-100, #EEF1F5);
+    }
+    .guias-table td.col-pdf .btn-mini { padding: 9px 14px; font-size: 13px; }
+}

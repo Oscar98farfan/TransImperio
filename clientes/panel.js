@@ -619,13 +619,13 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
               <td class="col-check"><input type="checkbox" class="chk-guia" data-id="${g.EnvioID}"
                   ${guiasSel.has(String(g.EnvioID)) ? "checked" : ""}
                   ${g.PdfEstado === "bloqueado" ? "disabled title=\"Pendiente de valor\"" : ""}></td>
-              <td><b>${g.EnvioID}</b></td>
-              <td>${formatearFecha(g.FechaEnvio)}</td>
-              <td>${g.Destinatario || "—"}</td>
-              <td>${g.Destino || "—"}</td>
-              <td>${formatearPesos(g.ValorTotal)}</td>
-              <td>${badgeEstado(g.EstadoGuia)}</td>
-              <td class="col-pdf">${celdaPdf(g)}</td>
+              <td class="col-guia" data-label="Guía"><b>${g.EnvioID}</b></td>
+              <td data-label="Fecha">${formatearFecha(g.FechaEnvio)}</td>
+              <td data-label="Destinatario">${g.Destinatario || "—"}</td>
+              <td data-label="Destino">${g.Destino || "—"}</td>
+              <td data-label="Valor">${formatearPesos(g.ValorTotal)}</td>
+              <td class="col-estado" data-label="Estado">${badgeEstado(g.EstadoGuia)}</td>
+              <td class="col-pdf" data-label="Guía PDF">${celdaPdf(g)}</td>
             </tr>`).join("")}
         </tbody>
       </table>
