@@ -1,6 +1,7 @@
 'use strict';
 
-const API_URL = "https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec";
+// La URL del API vive solo en config.js
+const API_URL = CONFIG.API_URL;
 
 const form = document.getElementById("loginForm");
 const mensaje = document.getElementById("mensaje");
@@ -37,6 +38,7 @@ form.addEventListener("submit", async function (e) {
         }
 
         if (data.ok) {
+            sessionStorage.setItem("token", data.token);
             sessionStorage.setItem("usuario", JSON.stringify(data.usuario));
             window.location.href = "panel.html";
         } else {

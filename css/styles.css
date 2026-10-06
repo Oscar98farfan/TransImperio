@@ -69,6 +69,24 @@ body {
 .nav-logo-img      { height: 44px; width: auto; object-fit: contain; border-radius: var(--radius-sm); transition: opacity var(--transition); }
 .nav-logo-img-wrap:hover .nav-logo-img { opacity: 0.85; }
 
+/* Links y botones del nav (no dependen de Tailwind) */
+.nav-links-wrapper { display: flex; align-items: center; gap: 28px; }
+.nav-links   { display: flex; align-items: center; gap: 28px; list-style: none; margin: 0; padding: 0; }
+.nav-link    { font-size: 14px; font-weight: 500; color: #4B5563; text-decoration: none; white-space: nowrap; transition: color var(--transition); }
+.nav-link:hover { color: var(--blue-500); }
+.nav-actions { display: flex; align-items: center; gap: 10px; }
+.nav-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  white-space: nowrap; text-decoration: none;
+  background: var(--blue-700); color: var(--white);
+  font-size: 14px; font-weight: 500; line-height: 1;
+  min-height: 40px; padding: 0 18px; border: 1.5px solid var(--blue-700); border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.nav-btn:hover { background: var(--blue-900); border-color: var(--blue-900); }
+.nav-btn-outline { background: transparent; color: var(--blue-700); }
+.nav-btn-outline:hover { background: var(--blue-50); color: var(--blue-900); border-color: var(--blue-900); }
+
 .hamburger { display: none; flex-direction: column; gap: 5px; cursor: pointer; background: none; border: none; padding: 4px; }
 .hamburger span { display: block; width: 24px; height: 2px; background: var(--blue-900); border-radius: 2px; transition: all 0.3s; }
 .hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
@@ -86,6 +104,8 @@ body {
   box-shadow: 0 8px 24px rgba(4,44,83,0.08);
 }
 .mobile-menu.open { display: flex; }
+.mobile-menu .nav-btn { font-size: 15px; min-height: 46px; }
+.mobile-menu a:not(.nav-btn) { font-size: 16px; font-weight: 500; color: var(--gray-700); text-decoration: none; }
 
 /* ════════════════════════════════════════════
    TIPOGRAFÍA COMPARTIDA
@@ -510,6 +530,40 @@ body {
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity 0.6s ease, transform 0.6s ease; }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 
+
+/* ════════════════════════════════════════════
+   ANCHO MÁXIMO DEL CONTENIDO
+   El fondo de cada sección ocupa todo el ancho,
+   pero el contenido se limita a 1200px centrado.
+════════════════════════════════════════════ */
+:root { --content-max: 1200px; --gutter: max(5vw, calc((100% - var(--content-max)) / 2)); }
+#main-nav { padding-left: var(--gutter); padding-right: var(--gutter); }
+.hero-content { padding-left: var(--gutter); padding-right: var(--gutter); }
+#nosotros, #servicios, #rastreo, #cobertura, #contacto {
+  padding: 96px var(--gutter);
+}
+.site-footer { padding-left: var(--gutter); padding-right: var(--gutter); }
+
+/* ════════════════════════════════════════════
+   RESPALDO DE UTILIDADES TAILWIND
+   Mismos valores que Tailwind: si el CDN no carga
+   (sin internet, bloqueado, lento) la página se ve igual.
+════════════════════════════════════════════ */
+.flex { display: flex; } .flex-col { flex-direction: column; } .gap-3 { gap: .75rem; }
+.w-5 { width: 1.25rem; } .h-5 { height: 1.25rem; }
+.max-w-lg { max-width: 32rem; } .max-w-3xl { max-width: 48rem; } .mx-auto { margin-left: auto; margin-right: auto; }
+.mb-0\.5 { margin-bottom: .125rem; } .mb-1 { margin-bottom: .25rem; } .mb-4 { margin-bottom: 1rem; }
+.mb-8 { margin-bottom: 2rem; } .mb-12 { margin-bottom: 3rem; } .mb-14 { margin-bottom: 3.5rem; } .mt-8 { margin-top: 2rem; }
+.py-24 { padding-top: 6rem; padding-bottom: 6rem; } .px-\[5vw\] { padding-left: 5vw; padding-right: 5vw; }
+.text-xs { font-size: .75rem; line-height: 1rem; } .text-sm { font-size: .875rem; line-height: 1.25rem; }
+.text-base { font-size: 1rem; line-height: 1.5rem; } .leading-relaxed { line-height: 1.625; }
+.text-center { text-align: center; } .underline { text-decoration: underline; }
+.font-body { font-family: var(--font-body); } .font-medium { font-weight: 500; } .font-bold { font-weight: 700; }
+.text-gray-400 { color: #9CA3AF; } .text-gray-500 { color: #6B7280; } .text-gray-700 { color: #374151; }
+.text-brand-900 { color: var(--blue-900); } .bg-white { background-color: #fff; }
+.transition-colors { transition: color .15s, background-color .15s, border-color .15s; }
+.hover\:text-brand-500:hover { color: var(--blue-500); } .hover\:text-white:hover { color: #fff; }
+
 /* ════════════════════════════════════════════
    RESPONSIVE — tablet / mobile
 ════════════════════════════════════════════ */
@@ -517,11 +571,22 @@ body {
   .services-grid { grid-template-columns: 1fr 1fr; }
 }
 
-@media (max-width: 900px) {
-  /* Nav */
+@media (max-width: 1180px) {
+  .nav-links-wrapper, .nav-links { gap: 18px; }
+  .nav-link { font-size: 13px; }
+  .nav-btn  { font-size: 13px; padding: 0 14px; min-height: 38px; }
+  .nav-logo-img { height: 38px; }
+}
+
+@media (max-width: 1024px) {
+  /* Nav: menú hamburguesa */
   .nav-links-wrapper { display: none !important; }
   .hamburger { display: flex; }
   .nav-logo-img { height: 36px; }
+  .mobile-menu .nav-btn { font-size: 15px; min-height: 46px; padding: 0 18px; }
+}
+
+@media (max-width: 900px) {
 
   /* Hero */
   .hero-content { grid-template-columns: 1fr; padding-top: 110px; padding-bottom: 60px; }

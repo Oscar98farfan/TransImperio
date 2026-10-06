@@ -5,22 +5,34 @@
 
 'use strict';
 
-// ── URL del Web App de Apps Script ──────────────────────────
-const API_URL = "https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec";
+// ── URL del Web App de Apps Script (definida en config.js) ──
+const API_URL = CONFIG.API_URL;
 
 // ── Helper único para llamar al backend (POST, sin headers → text/plain, sin preflight CORS) ──
+// Agrega el token de sesión a todas las llamadas. Si el servidor responde que la
+// sesión expiró, limpia la sesión y vuelve al login.
 async function apiCall(payload) {
+  const token = sessionStorage.getItem("token");
   const res = await fetch(API_URL, {
     method: "POST",
     redirect: "follow",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(Object.assign({}, payload, { token }))
   });
   const text = await res.text();
+  let data;
   try {
-    return JSON.parse(text);
+    data = JSON.parse(text);
   } catch {
     throw new Error("Respuesta inesperada del servidor: " + text.slice(0, 120));
   }
+  if (data && data.codigo === "SESION") {
+    sessionStorage.removeItem("usuario");
+    sessionStorage.removeItem("token");
+    alert(data.mensaje || "Tu sesión expiró. Ingresa de nuevo.");
+    window.location.href = "index.html";
+    throw new Error("Sesión expirada");
+  }
+  return data;
 }
 
 // ── Estado global ────────────────────────────────────────────
@@ -34,13 +46,19 @@ let guiasFiltradas = [];  // resultado del filtro activo
 let paginaGuias = 1;
 const GUIAS_POR_PAGINA = 15;
 
+// Selección y PDFs de guías
+const guiasSel = new Set();          // EnvioID seleccionados (se mantiene entre páginas/filtros)
+let guiasCfg = { bloquear: true, max: 5 };
+let guiasOcupado = false;            // evita dobles clics mientras se generan/descargan
+const pdfCache = new Map();          // EnvioID → base64 (para ver y descargar sin pedirlo dos veces)
+
 // ════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", () => {
 
   const raw = sessionStorage.getItem("usuario");
-  if (!raw) { window.location.href = "index.html"; return; }
+  if (!raw || !sessionStorage.getItem("token")) { window.location.href = "index.html"; return; }
 
   usuario = JSON.parse(raw);
 
@@ -69,6 +87,10 @@ document.addEventListener("DOMContentLoaded", () => {
 // SESIÓN
 // ════════════════════════════════════════════════════════════
 function cerrarSesion() {
+  // Avisa al servidor para invalidar el token (sin esperar respuesta)
+  const token = sessionStorage.getItem("token");
+  if (token) fetch(API_URL, { method: "POST", keepalive: true, body: JSON.stringify({ accion: "logout", token }) }).catch(() => {});
+  sessionStorage.removeItem("token");
   sessionStorage.removeItem("usuario");
   window.location.href = "index.html";
 }
@@ -329,8 +351,6 @@ async function importarDatos() {
   try {
     const data = await apiCall({
       accion: "cargar",
-      email: usuario.Email,
-      clienteID: usuario.ClienteID,
       envios: datosCarga
     });
 
@@ -376,6 +396,7 @@ function _mostrarResultado(data) {
       <div class="resultado-icono">${icono}</div>
       <h3 class="resultado-titulo">${titulo}</h3>
       ${data.cargaID ? `<p class="resultado-lote">Lote: <code>${data.cargaID}</code></p>` : ""}
+      ${data.importados > 0 ? `<p class="preview-note">Para generar los PDF de estas guías ve a <b>Mis Guías</b>, selecciónalas y pulsa <b>Generar PDF</b>.</p>` : ""}
       ${hayErrores ? `
         <div class="errores-lista">
           <strong>Detalle de errores:</strong>
@@ -405,7 +426,7 @@ async function renderMisGuias(contenedor) {
   `;
 
   try {
-    const data = await apiCall({ accion: "guias", clienteID: usuario.ClienteID });
+    const data = await apiCall({ accion: "guias" });
 
     if (!data.ok || !data.guias || !data.guias.length) {
       document.getElementById("guiasEstado").innerHTML = `
@@ -414,6 +435,8 @@ async function renderMisGuias(contenedor) {
     }
 
     guiasData = data.guias;
+    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5 };
+    guiasSel.clear();
     paginaGuias = 1;
     renderPanelGuias(contenedor);
 
@@ -429,9 +452,15 @@ function renderPanelGuias(contenedor) {
   const destinos = [...new Set(guiasData.map(g => g.Destino).filter(Boolean))].sort();
 
   contenedor.innerHTML = `
-    <div class="vista-header">
-      <h2 class="vista-title">Mis Guías</h2>
-      <p class="vista-subtitle">Historial de envíos asociados a tu cuenta.</p>
+    <div class="vista-header vista-header-flex">
+      <div>
+        <h2 class="vista-title">Mis Guías</h2>
+        <p class="vista-subtitle">Historial de envíos asociados a tu cuenta.</p>
+      </div>
+      <div class="actualizar-wrap">
+        <span class="actualizado-txt" id="guiasActualizado">Actualizado ${horaActual()}</span>
+        <button class="btn-secundario btn-sm" id="btnActualizarGuias" title="Volver a consultar las guías">🔄 Actualizar</button>
+      </div>
     </div>
 
     <div class="guias-resumen" id="guiasResumen"></div>
@@ -462,9 +491,14 @@ function renderPanelGuias(contenedor) {
       <button class="btn-link" id="btnLimpiarFiltros">✕ Limpiar filtros</button>
     </div>
 
+    <div class="guias-acciones" id="guiasAcciones"></div>
     <div class="guias-table-wrap" id="guiasTablaWrap"></div>
     <div class="paginacion-wrap" id="guiasPaginacion"></div>
   `;
+
+  document.getElementById("guiasTablaWrap").addEventListener("click", onClickTablaGuias);
+  document.getElementById("btnActualizarGuias").addEventListener("click", actualizarGuias);
+  document.getElementById("guiasTablaWrap").addEventListener("change", onCambioCheckGuias);
 
   ["filtroTexto", "filtroEstado", "filtroDestino", "filtroDesde", "filtroHasta"]
     .forEach(id => document.getElementById(id).addEventListener("input", () => {
@@ -553,6 +587,7 @@ function renderTablaConPaginacion() {
 
   renderTablaGuias(slice, totalFiltradas, inicio);
   renderPaginacionGuias(totalPaginas, totalFiltradas);
+  renderAccionesGuias();
 }
 
 // ── Tabla de guías (recibe ya el slice de la página actual) ────
@@ -572,19 +607,25 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
       <table class="guias-table">
         <thead>
           <tr>
+            <th class="col-check"><input type="checkbox" id="chkPagina" title="Seleccionar esta página"
+                ${guias.every(g => guiasSel.has(String(g.EnvioID)) || g.PdfEstado === "bloqueado") && guias.some(g => g.PdfEstado !== "bloqueado") ? "checked" : ""}></th>
             <th>Guía</th><th>Fecha</th><th>Destinatario</th>
-            <th>Destino</th><th>Valor</th><th>Estado</th>
+            <th>Destino</th><th>Valor</th><th>Estado</th><th>Guía PDF</th>
           </tr>
         </thead>
         <tbody>
           ${guias.map(g => `
-            <tr>
+            <tr class="${guiasSel.has(String(g.EnvioID)) ? "fila-sel" : ""}">
+              <td class="col-check"><input type="checkbox" class="chk-guia" data-id="${g.EnvioID}"
+                  ${guiasSel.has(String(g.EnvioID)) ? "checked" : ""}
+                  ${g.PdfEstado === "bloqueado" ? "disabled title=\"Pendiente de valor\"" : ""}></td>
               <td><b>${g.EnvioID}</b></td>
               <td>${formatearFecha(g.FechaEnvio)}</td>
               <td>${g.Destinatario || "—"}</td>
               <td>${g.Destino || "—"}</td>
               <td>${formatearPesos(g.ValorTotal)}</td>
               <td>${badgeEstado(g.EstadoGuia)}</td>
+              <td class="col-pdf">${celdaPdf(g)}</td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -632,6 +673,261 @@ function renderPaginacionGuias(totalPaginas, totalFiltradas) {
       renderTablaConPaginacion();
     });
   });
+}
+
+
+// ════════════════════════════════════════════════════════════
+// GUÍAS EN PDF: selección, generar, regenerar, descargar
+// ════════════════════════════════════════════════════════════
+
+// Contenido de la columna "Guía PDF" según el estado que manda el backend
+function celdaPdf(g) {
+  const id = g.EnvioID;
+  switch (g.PdfEstado) {
+    case "listo":
+      return `<button class="btn-mini" data-accion="ver" data-id="${id}">👁 Ver</button>
+              <button class="btn-mini btn-mini-sec" data-accion="descargar" data-id="${id}" title="Descargar PDF">⬇</button>
+              <button class="btn-mini btn-mini-sec" data-accion="regenerar" data-id="${id}" title="Regenerar PDF">↻</button>`;
+    case "desactualizado":
+      return `<span class="pdf-chip pdf-aviso" title="El valor cambió después de generar el PDF">Valor cambió</span>
+              <button class="btn-mini" data-accion="regenerar" data-id="${id}">↻ Regenerar</button>
+              <button class="btn-mini btn-mini-sec" data-accion="ver" data-id="${id}" title="Ver PDF anterior">👁</button>`;
+    case "bloqueado":
+      return `<span class="pdf-chip pdf-bloqueado" title="TRANSIMPERIO aún no asigna el valor de este envío">Pendiente de valor</span>`;
+    default:
+      return `<button class="btn-mini" data-accion="generar" data-id="${id}">Generar</button>`;
+  }
+}
+
+function onCambioCheckGuias(e) {
+  const t = e.target;
+  if (t.id === "chkPagina") {
+    document.querySelectorAll(".chk-guia:not(:disabled)").forEach(chk => {
+      chk.checked = t.checked;
+      t.checked ? guiasSel.add(chk.dataset.id) : guiasSel.delete(chk.dataset.id);
+      chk.closest("tr").classList.toggle("fila-sel", t.checked);
+    });
+  } else if (t.classList.contains("chk-guia")) {
+    t.checked ? guiasSel.add(t.dataset.id) : guiasSel.delete(t.dataset.id);
+    t.closest("tr").classList.toggle("fila-sel", t.checked);
+  } else return;
+  renderAccionesGuias();
+}
+
+function onClickTablaGuias(e) {
+  const btn = e.target.closest("button[data-accion]");
+  if (!btn || guiasOcupado) return;
+  const id = btn.dataset.id;
+  if (btn.dataset.accion === "ver") verGuiaPdf(id);
+  if (btn.dataset.accion === "descargar") descargarGuias([id]);
+  if (btn.dataset.accion === "generar") generarGuiasLote([id], false);
+  if (btn.dataset.accion === "regenerar") generarGuiasLote([id], true);
+}
+
+// Barra de acciones sobre la tabla
+function renderAccionesGuias(mensaje) {
+  const wrap = document.getElementById("guiasAcciones");
+  if (!wrap) return;
+  const sel = guiasData.filter(g => guiasSel.has(String(g.EnvioID)));
+  const porGenerar = sel.filter(g => g.PdfEstado === "pendiente" || g.PdfEstado === "desactualizado");
+  const listas = sel.filter(g => g.PdfEstado === "listo" || g.PdfEstado === "desactualizado");
+  const bloqueadas = guiasData.filter(g => g.PdfEstado === "bloqueado").length;
+
+  wrap.innerHTML = `
+    <div class="guias-acciones-izq">
+      <span class="sel-count">${sel.length ? `<b>${sel.length}</b> seleccionada(s)` : "Selecciona guías para generar o descargar sus PDF"}</span>
+      ${sel.length ? `<button class="btn-link" id="btnQuitarSel">Quitar selección</button>` : ""}
+    </div>
+    <div class="guias-acciones-der">
+      <button class="btn-primary btn-sm" id="btnGenerarSel" ${porGenerar.length && !guiasOcupado ? "" : "disabled"}>
+        📄 Generar PDF${porGenerar.length ? ` (${porGenerar.length})` : ""}</button>
+      <button class="btn-secundario btn-sm" id="btnDescargarSel" ${listas.length && !guiasOcupado ? "" : "disabled"}>
+        ⬇ Descargar${listas.length ? ` (${listas.length})` : ""}</button>
+    </div>
+    ${mensaje ? `<div class="guias-acciones-msg">${mensaje}</div>` : ""}
+    ${guiasCfg.bloquear && bloqueadas ? `<div class="guias-acciones-nota">🔒 ${bloqueadas} guía(s) quedan disponibles para PDF cuando TRANSIMPERIO asigne el valor.</div>` : ""}
+  `;
+
+  const q = document.getElementById("btnQuitarSel");
+  if (q) q.addEventListener("click", () => { guiasSel.clear(); renderTablaConPaginacion(); });
+  document.getElementById("btnGenerarSel").addEventListener("click",
+    () => generarGuiasLote(porGenerar.map(g => String(g.EnvioID)), true));
+  document.getElementById("btnDescargarSel").addEventListener("click",
+    () => descargarGuias(listas.map(g => String(g.EnvioID))));
+}
+
+// Genera en tandas (el backend acepta pocas por llamada) y actualiza la tabla
+async function generarGuiasLote(ids, regenerar) {
+  if (!ids.length || guiasOcupado) return;
+  guiasOcupado = true;
+  const errores = [];
+  let hechas = 0;
+  try {
+    for (let i = 0; i < ids.length; i += guiasCfg.max) {
+      const tanda = ids.slice(i, i + guiasCfg.max);
+      renderAccionesGuias(`⏳ Generando PDF… ${hechas} de ${ids.length}`);
+      const data = await apiCall({ accion: "generarGuias", guias: tanda, regenerar });
+      if (!data.ok) { errores.push(data.mensaje || "Error al generar."); break; }
+      data.resultados.forEach(r => {
+        const g = guiasData.find(x => String(x.EnvioID) === String(r.EnvioID));
+        if (g && r.PdfEstado) g.PdfEstado = r.PdfEstado;
+        if (r.ok) pdfCache.delete(String(r.EnvioID));
+        if (r.ok) hechas++; else errores.push(`${r.EnvioID}: ${r.mensaje}`);
+      });
+    }
+  } catch (err) {
+    if (err.message !== "Sesión expirada") errores.push("Error de conexión: " + err.message);
+  } finally {
+    guiasOcupado = false;
+  }
+  renderTablaConPaginacion();
+  renderAccionesGuias(
+    (hechas ? `✅ ${hechas} PDF listo(s). ` : "") +
+    (errores.length ? `<span class="txt-error">⚠️ ${errores.join(" · ")}</span>` : "")
+  );
+}
+
+// Descarga cada PDF (el backend lo devuelve en base64)
+async function descargarGuias(ids) {
+  if (!ids.length || guiasOcupado) return;
+  guiasOcupado = true;
+  const errores = [];
+  try {
+    for (let i = 0; i < ids.length; i++) {
+      renderAccionesGuias(`⏳ Descargando ${i + 1} de ${ids.length}…`);
+      const data = await obtenerPdf(ids[i]);
+      if (!data.ok) { errores.push(`${ids[i]}: ${data.mensaje}`); continue; }
+      guardarPdf(data.base64, data.nombre || `Guia-${ids[i]}.pdf`);
+      await new Promise(r => setTimeout(r, 400)); // el navegador bloquea muchas descargas seguidas
+    }
+  } catch (err) {
+    if (err.message !== "Sesión expirada") errores.push("Error de conexión: " + err.message);
+  } finally {
+    guiasOcupado = false;
+  }
+  renderAccionesGuias(errores.length ? `<span class="txt-error">⚠️ ${errores.join(" · ")}</span>` : "✅ Descarga lista.");
+}
+
+// Pide el PDF al backend una sola vez y lo guarda en memoria
+async function obtenerPdf(id) {
+  id = String(id);
+  if (pdfCache.has(id)) return pdfCache.get(id);
+  const data = await apiCall({ accion: "descargarGuia", guia: id });
+  if (data.ok) pdfCache.set(id, data);
+  return data;
+}
+
+function urlPdf(base64) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+}
+
+// ── Visor de PDF en ventana emergente ──
+async function verGuiaPdf(id) {
+  if (guiasOcupado) return;
+  cerrarVisorPdf();
+  const visor = document.createElement("div");
+  visor.id = "visorPdf";
+  visor.className = "visor-pdf";
+  visor.innerHTML = `
+    <div class="visor-pdf-caja" role="dialog" aria-modal="true" aria-label="Guía ${id}">
+      <div class="visor-pdf-barra">
+        <strong>Guía ${id}</strong>
+        <div class="visor-pdf-botones" id="visorBotones"></div>
+        <button class="visor-pdf-cerrar" id="visorCerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="visor-pdf-cuerpo" id="visorCuerpo">
+        <div class="estado-vacio"><div class="icono">🔄</div><p>Cargando PDF…</p></div>
+      </div>
+    </div>`;
+  document.body.appendChild(visor);
+  visor.addEventListener("click", e => { if (e.target === visor) cerrarVisorPdf(); });
+  document.getElementById("visorCerrar").addEventListener("click", cerrarVisorPdf);
+  document.addEventListener("keydown", escVisorPdf);
+
+  try {
+    const data = await obtenerPdf(id);
+    if (!document.getElementById("visorPdf")) return; // se cerró mientras cargaba
+    if (!data.ok) {
+      document.getElementById("visorCuerpo").innerHTML =
+        `<div class="estado-vacio"><div class="icono">⚠️</div><p>${data.mensaje || "No se pudo abrir el PDF."}</p></div>`;
+      return;
+    }
+    const url = urlPdf(data.base64);
+    visor.dataset.url = url;
+    document.getElementById("visorCuerpo").innerHTML =
+      `<iframe src="${url}#view=FitH" title="Guía ${id}"></iframe>`;
+    document.getElementById("visorBotones").innerHTML = `
+      <a class="btn-mini btn-mini-sec" href="${url}" target="_blank" rel="noopener">↗ Abrir en pestaña</a>
+      <button class="btn-mini" id="visorDescargar">⬇ Descargar</button>`;
+    document.getElementById("visorDescargar").addEventListener("click",
+      () => guardarPdf(data.base64, data.nombre || `Guia-${id}.pdf`));
+  } catch (err) {
+    if (err.message === "Sesión expirada") return;
+    const cuerpo = document.getElementById("visorCuerpo");
+    if (cuerpo) cuerpo.innerHTML = `<div class="estado-vacio"><div class="icono">⚠️</div><p>Error de conexión. Intenta de nuevo.</p></div>`;
+  }
+}
+
+function escVisorPdf(e) { if (e.key === "Escape") cerrarVisorPdf(); }
+
+function cerrarVisorPdf() {
+  const v = document.getElementById("visorPdf");
+  if (!v) return;
+  if (v.dataset.url) setTimeout(() => URL.revokeObjectURL(v.dataset.url), 60000); // por si se abrió en otra pestaña
+  v.remove();
+  document.removeEventListener("keydown", escVisorPdf);
+}
+
+// ── Botón "Actualizar": vuelve a pedir las guías sin recargar la página ──
+async function actualizarGuias() {
+  const btn = document.getElementById("btnActualizarGuias");
+  if (!btn || guiasOcupado) return;
+  btn.disabled = true;
+  btn.textContent = "⏳ Actualizando…";
+  try {
+    const data = await apiCall({ accion: "guias" });
+    if (!data.ok) throw new Error(data.mensaje || "No se pudo actualizar.");
+    guiasData = data.guias || [];
+    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5 };
+    pdfCache.clear();
+
+    // Mantiene la selección de las guías que siguen existiendo
+    const ids = new Set(guiasData.map(g => String(g.EnvioID)));
+    [...guiasSel].forEach(id => { if (!ids.has(id)) guiasSel.delete(id); });
+
+    // Refresca el filtro de destinos conservando el elegido
+    const sel = document.getElementById("filtroDestino");
+    const actual = sel.value;
+    const destinos = [...new Set(guiasData.map(g => g.Destino).filter(Boolean))].sort();
+    sel.innerHTML = `<option value="">Todos los destinos</option>` +
+      destinos.map(d => `<option value="${d}" ${d === actual ? "selected" : ""}>${d}</option>`).join("");
+
+    aplicarFiltrosGuias();  // conserva los filtros y la página actual
+    document.getElementById("guiasActualizado").textContent = "Actualizado " + horaActual();
+  } catch (err) {
+    if (err.message !== "Sesión expirada") renderAccionesGuias(`<span class="txt-error">⚠️ ${err.message}</span>`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 Actualizar";
+  }
+}
+
+function horaActual() {
+  return new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+}
+
+function guardarPdf(base64, nombre) {
+  const url = urlPdf(base64);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 // ════════════════════════════════════════════════════════════

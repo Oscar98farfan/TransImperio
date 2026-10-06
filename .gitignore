@@ -1,0 +1,24 @@
+Backend.txt
+Backend/
+
+# Dependencias de Node (si usas npm/yarn)
+node_modules/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Variables de entorno y secretos
+.env
+.env.local
+
+# Carpetas de compilación o distribución comunes
+dist/
+build/
+
+# Archivos de editores (Visual Studio Code)
+.vscode/
+*.suo
+*.user
+*.unityproj

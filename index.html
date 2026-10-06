@@ -41,32 +41,26 @@
       <img src="assets/images/logo_simplificado.png" alt="Logística TRANSIMPERIO" class="nav-logo-img" width="220"
         height="44">
     </a>
-    <div class="nav-links-wrapper hidden md:flex items-center gap-8">
-      <ul class="flex gap-8 list-none">
-        <li><a href="#nosotros"
-            class="text-sm font-medium text-gray-600 hover:text-brand-500 transition-colors">Nosotros</a></li>
-        <li><a href="#servicios"
-            class="text-sm font-medium text-gray-600 hover:text-brand-500 transition-colors">Servicios</a></li>
-        <li><a href="#rastreo" class="text-sm font-medium text-gray-600 hover:text-brand-500 transition-colors">Rastrear
-            envío</a></li>
-        <li><a href="#cobertura"
-            class="text-sm font-medium text-gray-600 hover:text-brand-500 transition-colors">Cobertura</a></li>
-        <a href="./clientes/index.html"
-          class="bg-brand-700 hover:bg-brand-900 text-white text-sm font-medium px-5 py-2.5 rounded-lg">Área de
-          Clientes</a>
-        <!-- <a href="https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec"
-          class="bg-brand-700 hover:bg-brand-900 text-white text-sm font-medium px-5 py-2.5 rounded-lg">Área de
-          Clientes</a> -->
-        <!-- <li><a href="https://script.google.com/macros/s/TU_ID_DEL_WEBAPP/exec"
-            class="bg-brand-700 hover:bg-brand-900 text-white text-sm font-medium px-5 py-2.5 rounded-lg">Área de
-            Clientes</a></li> -->
-        <!-- <li><a href="/clientes/" class="text-sm font-medium text-gray-600 hover:text-brand-500 transition-colors">Área
-            de Clientes</a></li> -->
+    <div class="nav-links-wrapper">
+      <ul class="nav-links">
+        <li><a href="#nosotros" class="nav-link">Nosotros</a></li>
+        <li><a href="#servicios" class="nav-link">Servicios</a></li>
+        <li><a href="#rastreo" class="nav-link">Rastrear envío</a></li>
+        <li><a href="#cobertura" class="nav-link">Cobertura</a></li>
       </ul>
-      <a href="#contacto"
-        class="bg-brand-700 hover:bg-brand-900 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors">
-        Contáctanos
-      </a>
+      <div class="nav-actions">
+        <a href="./clientes/index.html" class="nav-btn nav-btn-outline">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          Área de Clientes
+        </a>
+        <a href="#contacto" class="nav-btn">Contáctanos</a>
+      </div>
+      <!-- URL anterior del panel (Apps Script):
+        https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec -->
     </div>
     <button class="hamburger" onclick="toggleMenu()" aria-label="Menú" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -78,13 +72,11 @@
     <a href="#servicios" class="text-base font-medium text-gray-700">Servicios</a>
     <a href="#rastreo" class="text-base font-medium text-gray-700">Rastrear envío</a>
     <a href="#cobertura" class="text-base font-medium text-gray-700">Cobertura</a>
-    <a href="./clientes/index.html" class="text-base font-medium text-gray-700">Área
-      de Clientes</a>
+    <a href="./clientes/index.html" class="nav-btn nav-btn-outline">Área de Clientes</a>
     <!-- <a href="https://script.google.com/macros/s/AKfycbxGwRg6BjkmxkQM-DQgaKUoRlj211DFtZKhD0T5KBcUFvgf30SjxmC7roZ90QIICyuJUw/exec"
       class="text-base font-medium text-gray-700">Área
       de Clientes</a> -->
-    <a href="#contacto"
-      class="inline-block bg-brand-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg text-center">Contáctanos</a>
+    <a href="#contacto" class="nav-btn">Contáctanos</a>
   </div>
 
 
