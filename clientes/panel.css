@@ -1294,3 +1294,44 @@
     }
     .guias-table td.col-pdf .btn-mini { padding: 9px 14px; font-size: 13px; }
 }
+
+/* ════════════════════════════════════════
+   CERRAR SESIÓN EN CELULAR
+   - Botón "Salir" en la barra superior (siempre visible en móvil)
+   - El menú lateral usa la altura VISIBLE de la pantalla (100dvh):
+     con 100vh el botón quedaba escondido detrás de la barra del navegador
+════════════════════════════════════════ */
+.header-salir { display: none; }
+
+@media (max-width: 900px) {
+    .header-salir {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 12px;
+        background: white;
+        color: var(--blue-700);
+        border: 1.5px solid var(--blue-100);
+        border-radius: var(--radius-md);
+        font-family: var(--font-body);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .header-salir:hover, .header-salir:active { background: var(--blue-50); border-color: var(--blue-700); }
+
+    .header-user { gap: 10px; min-width: 0; }
+    .user-name { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .sidebar {
+        height: 100vh;
+        height: 100dvh;
+        overflow-y: auto;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (max-width: 380px) {
+    .header-salir-txt { display: none; }   /* en pantallas muy angostas solo el ícono */
+    .header-salir { padding: 7px 10px; }
+}

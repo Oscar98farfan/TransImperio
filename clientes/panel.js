@@ -77,6 +77,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btnSalir").addEventListener("click", cerrarSesion);
+  const btnSalirHeader = document.getElementById("btnSalirHeader");
+  if (btnSalirHeader) btnSalirHeader.addEventListener("click", cerrarSesion);
   document.getElementById("btnMenuPanel").addEventListener("click", abrirSidebarMobile);
   document.getElementById("btnSidebarClose").addEventListener("click", cerrarSidebarMobile);
 
