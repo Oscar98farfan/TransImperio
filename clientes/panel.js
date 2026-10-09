@@ -11,19 +11,28 @@ const API_URL = CONFIG.API_URL;
 // ── Helper único para llamar al backend (POST, sin headers → text/plain, sin preflight CORS) ──
 // Agrega el token de sesión a todas las llamadas. Si el servidor responde que la
 // sesión expiró, limpia la sesión y vuelve al login.
+// Acciones que solo LEEN datos: si Google responde con un error momentáneo se reintentan
+// solas. Las que escriben (cargar, editar, generar PDF) no se reintentan para no duplicar.
+const ACCIONES_REINTENTABLES = ["guias", "seguimiento", "descargarGuia", "detalleGuia", "clientes", "sesion"];
+
 async function apiCall(payload) {
   const token = sessionStorage.getItem("token");
-  const res = await fetch(API_URL, {
-    method: "POST",
-    redirect: "follow",
-    body: JSON.stringify(Object.assign({}, payload, { token }))
-  });
-  const text = await res.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("Respuesta inesperada del servidor: " + text.slice(0, 120));
+  const cuerpo = JSON.stringify(Object.assign({}, payload, { token }));
+  const maxIntentos = ACCIONES_REINTENTABLES.includes(payload.accion) ? 3 : 1;
+  let data = null, text = "";
+  for (let intento = 1; intento <= maxIntentos && !data; intento++) {
+    if (intento > 1) await new Promise(r => setTimeout(r, 1500 * (intento - 1)));
+    try {
+      const res = await fetch(API_URL, { method: "POST", redirect: "follow", body: cuerpo });
+      text = await res.text();
+      data = JSON.parse(text);
+    } catch (err) {
+      data = null;
+      if (intento === maxIntentos) {
+        console.error("Respuesta no válida del servidor:", text.slice(0, 300) || err);
+        throw new Error("El servidor está ocupado en este momento. Intenta de nuevo en unos segundos.");
+      }
+    }
   }
   if (data && data.codigo === "SESION") {
     sessionStorage.removeItem("usuario");

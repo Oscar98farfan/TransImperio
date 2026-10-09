@@ -15,25 +15,30 @@ form.addEventListener("submit", async function (e) {
     boton.textContent = "Ingresando...";
 
     try {
-        const res = await fetch(API_URL, {
-            method: "POST",
-            redirect: "follow",           // ← sigue la redirección de Apps Script
-            body: JSON.stringify({
-                accion: "login",
-                email: document.getElementById("email").value.trim(),
-                password: document.getElementById("password").value
-            })
+        const cuerpo = JSON.stringify({
+            accion: "login",
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value
         });
 
-        // Apps Script a veces devuelve texto plano aunque el mime sea JSON
-        const texto = await res.text();
+        // Google Apps Script a veces responde con una página de error momentánea
+        // (servidor ocupado o "arrancando"). Se reintenta automáticamente hasta 2 veces.
+        let data = null, texto = "";
+        for (let intento = 1; intento <= 3 && !data; intento++) {
+            if (intento > 1) {
+                boton.textContent = "Reintentando...";
+                await new Promise(r => setTimeout(r, 1500 * (intento - 1)));
+            }
+            const res = await fetch(API_URL, { method: "POST", redirect: "follow", body: cuerpo });
+            texto = await res.text();
+            try { data = JSON.parse(texto); } catch { data = null; }
+        }
 
-        let data;
-        try {
-            data = JSON.parse(texto);
-        } catch {
-            console.error("Respuesta no es JSON:", texto);
-            mostrarError("Error del servidor. Revisa que el Web App esté publicado como 'Anyone'.");
+        if (!data) {
+            console.error("Respuesta no es JSON:", texto.slice(0, 300));
+            mostrarError("El servidor está ocupado en este momento. Espera unos segundos e intenta de nuevo.");
+            boton.disabled = false;
+            boton.textContent = "Ingresar";
             return;
         }
 
