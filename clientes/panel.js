@@ -48,7 +48,7 @@ const GUIAS_POR_PAGINA = 15;
 
 // Selección y PDFs de guías
 const guiasSel = new Set();          // EnvioID seleccionados (se mantiene entre páginas/filtros)
-let guiasCfg = { bloquear: true, max: 5 };
+let guiasCfg = { bloquear: true, max: 5, admin: false };
 let guiasOcupado = false;            // evita dobles clics mientras se generan/descargan
 const pdfCache = new Map();          // EnvioID → base64 (para ver y descargar sin pedirlo dos veces)
 
@@ -149,6 +149,14 @@ function renderCargaMasiva(contenedor) {
       </p>
     </div>
 
+    ${usuario && usuario.EsAdmin ? `
+    <div class="selector-cliente">
+      <label for="cargaCliente">Cliente de esta carga</label>
+      <select id="cargaCliente" class="filtro-select">
+        <option value="">Cargando clientes…</option>
+      </select>
+    </div>` : ""}
+
     <div class="upload-zone" id="uploadZone">
       <input type="file" id="archivoExcel" accept=".xlsx,.xls,.csv">
       <span class="upload-icon">📂</span>
@@ -178,6 +186,8 @@ function renderCargaMasiva(contenedor) {
 
     <div id="resultadoCarga"></div>
   `;
+
+  if (usuario && usuario.EsAdmin) cargarSelectorClientes();
 
   // Drag & drop
   const zone = document.getElementById("uploadZone");
@@ -255,6 +265,8 @@ function calcularValoresWeb(fila) {
     throw new Error(`ValorDeclarado debe ser mínimo ${formatearPesos(REGLAS_VALORES.minimo)}`);
   if (abono !== null && abono > 0 && !credito)
     throw new Error("Abono solo aplica cuando el TipoPago es Crédito");
+  if (credito && abono !== null && abono > 0 && !(envio > 0))
+    throw new Error("Si el pago es Crédito con Abono, el ValorEnvio es obligatorio");
   const seguro = Math.round(declarado * REGLAS_VALORES.seguro);
   const total = (envio || 0) + seguro;
   const ab = credito ? (abono || 0) : 0;
@@ -407,6 +419,12 @@ function validarYMostrarPrevia(nombreArchivo) {
 
 // ── Enviar datos al Apps Script (UNA sola llamada, vía apiCall/POST) ──
 async function importarDatos() {
+  const selCliente = document.getElementById("cargaCliente");
+  if (selCliente && !selCliente.value) {
+    alert("Selecciona el cliente de esta carga antes de importar.");
+    selCliente.focus();
+    return;
+  }
   const boton = document.getElementById("btnImportar");
   boton.disabled = true;
   boton.textContent = "Importando…";
@@ -439,6 +457,7 @@ async function importarDatos() {
   try {
     const data = await apiCall({
       accion: "cargar",
+      clienteID: selCliente ? selCliente.value : undefined,
       envios: datosCarga.map(({ _valores, ...fila }) => fila)
     });
 
@@ -523,7 +542,7 @@ async function renderMisGuias(contenedor) {
     }
 
     guiasData = data.guias;
-    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5 };
+    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true };
     guiasSel.clear();
     paginaGuias = 1;
     renderPanelGuias(contenedor);
@@ -573,6 +592,8 @@ function renderPanelGuias(contenedor) {
         ${destinos.map(d => `<option value="${d}">${d}</option>`).join("")}
       </select>
 
+      ${guiasCfg.admin ? `<select id="filtroCliente" class="filtro-select">${opcionesClientesFiltro("")}</select>` : ""}
+
       <input type="date" id="filtroDesde" class="filtro-fecha" title="Desde">
       <input type="date" id="filtroHasta" class="filtro-fecha" title="Hasta">
 
@@ -588,7 +609,8 @@ function renderPanelGuias(contenedor) {
   document.getElementById("btnActualizarGuias").addEventListener("click", actualizarGuias);
   document.getElementById("guiasTablaWrap").addEventListener("change", onCambioCheckGuias);
 
-  ["filtroTexto", "filtroEstado", "filtroDestino", "filtroDesde", "filtroHasta"]
+  ["filtroTexto", "filtroEstado", "filtroDestino", "filtroDesde", "filtroHasta", "filtroCliente"]
+    .filter(id => document.getElementById(id))
     .forEach(id => document.getElementById(id).addEventListener("input", () => {
       paginaGuias = 1;
       aplicarFiltrosGuias();
@@ -600,6 +622,7 @@ function renderPanelGuias(contenedor) {
     document.getElementById("filtroDestino").value = "";
     document.getElementById("filtroDesde").value = "";
     document.getElementById("filtroHasta").value = "";
+    if (document.getElementById("filtroCliente")) document.getElementById("filtroCliente").value = "";
     paginaGuias = 1;
     aplicarFiltrosGuias();
   });
@@ -614,13 +637,17 @@ function aplicarFiltrosGuias() {
   const destino = document.getElementById("filtroDestino").value;
   const desde = document.getElementById("filtroDesde").value;
   const hasta = document.getElementById("filtroHasta").value;
+  const filtroCli = document.getElementById("filtroCliente");
+  const cliente = filtroCli ? filtroCli.value : "";
 
   guiasFiltradas = guiasData.filter(g => {
     if (texto) {
       const enGuia = String(g.EnvioID).toLowerCase().includes(texto);
       const enDest = String(g.Destinatario || "").toLowerCase().includes(texto);
-      if (!enGuia && !enDest) return false;
+      const enCli = String(g.Cliente || "").toLowerCase().includes(texto);
+      if (!enGuia && !enDest && !enCli) return false;
     }
+    if (cliente && g.ClienteID !== cliente) return false;
     if (estado && (g.EstadoGuia || "") !== estado) return false;
     if (destino && g.Destino !== destino) return false;
 
@@ -697,8 +724,8 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
           <tr>
             <th class="col-check"><input type="checkbox" id="chkPagina" title="Seleccionar esta página"
                 ${guias.every(g => guiasSel.has(String(g.EnvioID)) || g.PdfEstado === "bloqueado") && guias.some(g => g.PdfEstado !== "bloqueado") ? "checked" : ""}></th>
-            <th>Guía</th><th>Fecha</th><th>Destinatario</th>
-            <th>Destino</th><th>Valor</th><th>Estado</th><th>Guía PDF</th>
+            <th>Guía</th>${guiasCfg.admin ? "<th>Cliente</th>" : ""}<th>Fecha</th><th>Destinatario</th>
+            <th>Destino</th><th>Valor</th><th>Estado</th><th>${guiasCfg.admin ? "Acciones" : "Guía PDF"}</th>
           </tr>
         </thead>
         <tbody>
@@ -708,6 +735,7 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
                   ${guiasSel.has(String(g.EnvioID)) ? "checked" : ""}
                   ${g.PdfEstado === "bloqueado" ? "disabled title=\"Pendiente de valor\"" : ""}></td>
               <td class="col-guia" data-label="Guía"><b>${g.EnvioID}</b></td>
+              ${guiasCfg.admin ? `<td data-label="Cliente">${g.Cliente || "—"}</td>` : ""}
               <td data-label="Fecha">${formatearFecha(g.FechaEnvio)}</td>
               <td data-label="Destinatario">${g.Destinatario || "—"}</td>
               <td data-label="Destino">${g.Destino || "—"}</td>
@@ -770,6 +798,12 @@ function renderPaginacionGuias(totalPaginas, totalFiltradas) {
 
 // Contenido de la columna "Guía PDF" según el estado que manda el backend
 function celdaPdf(g) {
+  const editar = g.Editable
+    ? `<button class="btn-mini btn-mini-editar" data-accion="editar" data-id="${g.EnvioID}" title="Editar guía">✏️ Editar</button>` : "";
+  return editar + celdaPdfBotones(g);
+}
+
+function celdaPdfBotones(g) {
   const id = g.EnvioID;
   switch (g.PdfEstado) {
     case "listo":
@@ -806,6 +840,7 @@ function onClickTablaGuias(e) {
   const btn = e.target.closest("button[data-accion]");
   if (!btn || guiasOcupado) return;
   const id = btn.dataset.id;
+  if (btn.dataset.accion === "editar") abrirEditorGuia(id);
   if (btn.dataset.accion === "ver") verGuiaPdf(id);
   if (btn.dataset.accion === "descargar") descargarGuias([id]);
   if (btn.dataset.accion === "generar") generarGuiasLote([id], false);
@@ -979,7 +1014,7 @@ async function actualizarGuias() {
     const data = await apiCall({ accion: "guias" });
     if (!data.ok) throw new Error(data.mensaje || "No se pudo actualizar.");
     guiasData = data.guias || [];
-    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5 };
+    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true };
     pdfCache.clear();
 
     // Mantiene la selección de las guías que siguen existiendo
@@ -992,6 +1027,8 @@ async function actualizarGuias() {
     const destinos = [...new Set(guiasData.map(g => g.Destino).filter(Boolean))].sort();
     sel.innerHTML = `<option value="">Todos los destinos</option>` +
       destinos.map(d => `<option value="${d}" ${d === actual ? "selected" : ""}>${d}</option>`).join("");
+    const selCli = document.getElementById("filtroCliente");
+    if (selCli) selCli.innerHTML = opcionesClientesFiltro(selCli.value);
 
     aplicarFiltrosGuias();  // conserva los filtros y la página actual
     document.getElementById("guiasActualizado").textContent = "Actualizado " + horaActual();
@@ -1016,6 +1053,222 @@ function guardarPdf(base64, nombre) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+
+// ════════════════════════════════════════════════════════════
+// ADMINISTRADOR: clientes y edición de guías
+// ════════════════════════════════════════════════════════════
+let listaClientesCache = null;
+
+async function obtenerListaClientes() {
+  if (listaClientesCache) return listaClientesCache;
+  const data = await apiCall({ accion: "clientes" });
+  if (!data.ok) throw new Error(data.mensaje || "No se pudo cargar la lista de clientes.");
+  listaClientesCache = data.clientes || [];
+  return listaClientesCache;
+}
+
+async function cargarSelectorClientes() {
+  const sel = document.getElementById("cargaCliente");
+  if (!sel) return;
+  try {
+    const clientes = await obtenerListaClientes();
+    sel.innerHTML = `<option value="">— Selecciona el cliente —</option>` +
+      clientes.map(c => `<option value="${escHtml(c.ClienteID)}">${escHtml(c.Nombre || c.ClienteID)}</option>`).join("");
+  } catch (err) {
+    if (err.message !== "Sesión expirada") sel.innerHTML = `<option value="">⚠️ ${escHtml(err.message)}</option>`;
+  }
+}
+
+// Opciones del filtro "Cliente" en Mis Guías (a partir de las guías cargadas)
+function opcionesClientesFiltro(seleccionado) {
+  const mapa = {};
+  guiasData.forEach(g => { if (g.ClienteID) mapa[g.ClienteID] = g.Cliente || g.ClienteID; });
+  const ids = Object.keys(mapa).sort((a, b) => mapa[a].localeCompare(mapa[b]));
+  return `<option value="">Todos los clientes</option>` +
+    ids.map(id => `<option value="${escHtml(id)}" ${id === seleccionado ? "selected" : ""}>${escHtml(mapa[id])}</option>`).join("");
+}
+
+function escHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ── Formulario de edición ──
+let edicionOriginal = null;
+
+async function abrirEditorGuia(id) {
+  cerrarEditorGuia();
+  const modal = document.createElement("div");
+  modal.id = "modalEditar";
+  modal.className = "modal-editar";
+  modal.innerHTML = `
+    <div class="modal-editar-caja" role="dialog" aria-modal="true" aria-label="Editar guía ${escHtml(id)}">
+      <div class="modal-editar-barra">
+        <div><strong>Editar guía ${escHtml(id)}</strong><div class="modal-editar-sub" id="editarSub"></div></div>
+        <button class="visor-pdf-cerrar" id="editarCerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-editar-cuerpo" id="editarCuerpo">
+        <div class="estado-vacio"><div class="icono">🔄</div><p>Cargando guía…</p></div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", e => { if (e.target === modal) cerrarEditorGuia(); });
+  document.getElementById("editarCerrar").addEventListener("click", cerrarEditorGuia);
+  document.addEventListener("keydown", escEditorGuia);
+
+  try {
+    const data = await apiCall({ accion: "detalleGuia", guia: id });
+    if (!document.getElementById("modalEditar")) return;
+    if (!data.ok) {
+      document.getElementById("editarCuerpo").innerHTML =
+        `<div class="estado-vacio"><div class="icono">⚠️</div><p>${escHtml(data.mensaje)}</p></div>`;
+      return;
+    }
+    edicionOriginal = data.guia;
+    pintarFormularioEdicion(data);
+  } catch (err) {
+    if (err.message === "Sesión expirada") return;
+    const c = document.getElementById("editarCuerpo");
+    if (c) c.innerHTML = `<div class="estado-vacio"><div class="icono">⚠️</div><p>Error de conexión. Intenta de nuevo.</p></div>`;
+  }
+}
+
+function pintarFormularioEdicion(data) {
+  const g = data.guia;
+  document.getElementById("editarSub").textContent =
+    `${g.Cliente || g.ClienteID} · Estado: ${g.EstadoGuia || "Pendiente"}`;
+  const v = k => escHtml(g[k] === null || g[k] === undefined ? "" : g[k]);
+  const campo = (k, etiqueta, tipo = "text", extra = "") =>
+    `<label class="ed-campo"><span>${etiqueta}</span><input type="${tipo}" name="${k}" value="${v(k)}" ${extra}></label>`;
+
+  document.getElementById("editarCuerpo").innerHTML = `
+    ${!g.Editable ? `<div class="alerta-errores">⚠️ La guía está en estado <b>${escHtml(g.EstadoGuia)}</b> y ya no se puede editar.</div>` : ""}
+    <form id="formEditar" class="form-editar" novalidate>
+      <fieldset ${g.Editable ? "" : "disabled"}>
+        <h4>Envío</h4>
+        <div class="ed-grid">
+          ${campo("FechaEnvio", "Fecha de envío", "date", "required")}
+          ${campo("Unidades", "Unidades", "number", 'min="1" step="1" required')}
+          <label class="ed-campo"><span>Tipo de mercancía</span>
+            <select name="TipoMercancia">${data.tiposMercancia.map(t =>
+              `<option value="${t.codigo}" ${t.codigo === g.TipoMercancia ? "selected" : ""}>${escHtml(t.nombre)}</option>`).join("")}</select></label>
+          ${campo("PesoKg", "Peso (kg)", "number", 'min="0" step="any" required')}
+          ${campo("PesoVol", "Kilo / Vol")}
+          <label class="ed-campo"><span>Tipo de pago</span>
+            <input name="TipoPago" list="listaTiposPago" value="${v("TipoPago")}" required>
+            <datalist id="listaTiposPago">${(data.tiposPago || []).map(t => `<option value="${escHtml(t)}">`).join("")}</datalist></label>
+          <label class="ed-campo ed-ancho"><span>Observación del envío</span><input name="ObsEnvio" value="${v("ObsEnvio")}"></label>
+        </div>
+
+        <h4>Destinatario</h4>
+        <div class="ed-grid">
+          ${campo("Destinatario", "Nombre", "text", "required")}
+          ${campo("Cedula", "Cédula / NIT")}
+          ${campo("Telefono", "Teléfono", "tel")}
+          ${campo("Origen", "Ciudad origen", "text", "required")}
+          ${campo("Destino", "Ciudad destino", "text", "required")}
+          <label class="ed-campo ed-ancho"><span>Dirección</span><input name="Direccion" value="${v("Direccion")}" required></label>
+          <label class="ed-campo ed-ancho"><span>Observación del destinatario</span><input name="ObsDestinatario" value="${v("ObsDestinatario")}"></label>
+        </div>
+
+        <h4>Valores</h4>
+        <div class="ed-grid">
+          ${campo("ValorEnvio", "Valor envío", "number", 'min="0" step="1" placeholder="Por asignar"')}
+          ${campo("ValorDeclarado", "Valor declarado", "number", 'min="30000" step="1" placeholder="35000"')}
+          ${campo("Abono", "Abono (solo crédito)", "number", 'min="0" step="1"')}
+        </div>
+        <div class="ed-calculados" id="edCalculados"></div>
+      </fieldset>
+
+      <div class="ed-error" id="edError"></div>
+      <div class="ed-botones">
+        <button type="button" class="btn-link" id="edCancelar">Cancelar</button>
+        <button type="submit" class="btn-primary" id="edGuardar" ${g.Editable ? "" : "disabled"}>💾 Guardar cambios</button>
+      </div>
+    </form>`;
+
+  const form = document.getElementById("formEditar");
+  form.addEventListener("input", recalcularEdicion);
+  form.addEventListener("submit", guardarEdicionGuia);
+  document.getElementById("edCancelar").addEventListener("click", cerrarEditorGuia);
+  recalcularEdicion();
+}
+
+function datosFormularioEdicion() {
+  const f = document.getElementById("formEditar");
+  const d = {};
+  new FormData(f).forEach((val, k) => { d[k] = typeof val === "string" ? val.trim() : val; });
+  return d;
+}
+
+function recalcularEdicion() {
+  const caja = document.getElementById("edCalculados");
+  if (!caja) return;
+  const d = datosFormularioEdicion();
+  try {
+    const v = calcularValoresWeb(d);
+    caja.innerHTML = `
+      <span>Seguro (2 %): <b>${formatearPesos(v.ValorSeguro)}</b></span>
+      <span>Total: <b>${formatearPesos(v.ValorTotal)}</b></span>
+      <span>Saldo pendiente: <b>${formatearPesos(v.SaldoPendiente)}</b></span>
+      ${v.ValorEnvio === null ? `<span class="valor-pend">Sin valor de envío: el PDF queda bloqueado</span>` : ""}`;
+    caja.classList.remove("con-error");
+  } catch (err) {
+    caja.innerHTML = `<span>⚠️ ${escHtml(err.message)}</span>`;
+    caja.classList.add("con-error");
+  }
+}
+
+async function guardarEdicionGuia(e) {
+  e.preventDefault();
+  const d = datosFormularioEdicion();
+  const err = document.getElementById("edError");
+  err.textContent = "";
+
+  // Solo se envían los campos que cambiaron
+  const o = edicionOriginal || {};
+  const cambios = {};
+  Object.keys(d).forEach(k => {
+    const antes = o[k] === null || o[k] === undefined ? "" : String(o[k]);
+    if (String(d[k]) !== antes) cambios[k] = d[k];
+  });
+  if (!Object.keys(cambios).length) { err.textContent = "No has cambiado nada."; return; }
+
+  try { calcularValoresWeb(d); } catch (ex) { err.textContent = ex.message; return; }
+
+  const btn = document.getElementById("edGuardar");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+  try {
+    const data = await apiCall({ accion: "editarGuia", guia: o.EnvioID, cambios });
+    if (!data.ok) {
+      err.textContent = data.mensaje || "No se pudo guardar.";
+      btn.disabled = false;
+      btn.textContent = "💾 Guardar cambios";
+      return;
+    }
+    cerrarEditorGuia();
+    pdfCache.delete(String(o.EnvioID));
+    await actualizarGuias();
+    renderAccionesGuias(data.sinCambios
+      ? "No hubo cambios."
+      : `✅ Guía ${escHtml(o.EnvioID)} actualizada (${data.cambios} cambio(s)). Si tenía PDF, regenéralo con ↻.`);
+  } catch (ex) {
+    if (ex.message === "Sesión expirada") return;
+    err.textContent = "Error de conexión: " + ex.message;
+    btn.disabled = false;
+    btn.textContent = "💾 Guardar cambios";
+  }
+}
+
+function escEditorGuia(e) { if (e.key === "Escape") cerrarEditorGuia(); }
+
+function cerrarEditorGuia() {
+  const m = document.getElementById("modalEditar");
+  if (m) m.remove();
+  edicionOriginal = null;
+  document.removeEventListener("keydown", escEditorGuia);
 }
 
 // ════════════════════════════════════════════════════════════
