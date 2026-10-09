@@ -1401,3 +1401,17 @@
     .guias-table td[data-label="Cliente"] { grid-column: 1 / -1; display: flex; gap: 8px; }
     .guias-table td[data-label="Cliente"]::before { content: attr(data-label); min-width: 92px; color: var(--gray-400); font-size: 12px; }
 }
+
+/* ── Nuevo envío (carga individual) ── */
+.form-nuevo { max-width: 900px; }
+.tarjeta-form {
+    background: white; border: 1px solid var(--blue-100); border-radius: var(--radius-lg);
+    padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow-card);
+}
+.form-nuevo .ed-botones { justify-content: flex-start; flex-direction: row-reverse; }
+.resultado-acciones { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 18px; }
+.vista-subtitle a { color: var(--blue-700); font-weight: 600; }
+@media (max-width: 640px) {
+    .tarjeta-form { padding: 14px 12px; }
+    .form-nuevo .ed-botones .btn-primary { flex: 1; }
+}

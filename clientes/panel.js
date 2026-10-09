@@ -57,7 +57,12 @@ const GUIAS_POR_PAGINA = 15;
 
 // Selección y PDFs de guías
 const guiasSel = new Set();          // EnvioID seleccionados (se mantiene entre páginas/filtros)
-let guiasCfg = { bloquear: true, max: 5, admin: false };
+let guiasCfg = { bloquear: true, max: 5, admin: false, multi: false };
+
+// Administrador (R1) o comercial (R3): manejan varios clientes
+function esMultiClienteWeb() {
+  return !!(usuario && (usuario.EsAdmin || usuario.MultiCliente));
+}
 let guiasOcupado = false;            // evita dobles clics mientras se generan/descargan
 const pdfCache = new Map();          // EnvioID → base64 (para ver y descargar sin pedirlo dos veces)
 
@@ -136,6 +141,7 @@ function cargarVista(nombre) {
   const contenido = document.getElementById("contenido");
   switch (nombre) {
     case "carga-masiva": renderCargaMasiva(contenido); break;
+    case "nuevo-envio": renderNuevoEnvio(contenido); break;
     case "mis-guias": renderMisGuias(contenido); break;
     case "seguimiento": renderSeguimiento(contenido); break;
     case "mi-cuenta": renderMiCuenta(contenido); break;
@@ -158,7 +164,7 @@ function renderCargaMasiva(contenedor) {
       </p>
     </div>
 
-    ${usuario && usuario.EsAdmin ? `
+    ${esMultiClienteWeb() ? `
     <div class="selector-cliente">
       <label for="cargaCliente">Cliente de esta carga</label>
       <select id="cargaCliente" class="filtro-select">
@@ -181,7 +187,7 @@ function renderCargaMasiva(contenedor) {
 
     <div class="columnas-tip">
       <strong>Columnas requeridas en el archivo:</strong><br>
-      FechaEnvio · Unidades · TipoMercancia · PesoKg · TipoPago ·
+      Unidades · TipoMercancia · PesoKg · TipoPago ·
       Destinatario · Origen · Destino · Direccion
       <br><br>
       <strong>Columnas opcionales:</strong><br>
@@ -189,14 +195,17 @@ function renderCargaMasiva(contenedor) {
       <br><br>
       <strong>Valores:</strong><br>
       ValorEnvio: llénalo si manejas lista de precios; si lo dejas vacío lo asigna TRANSIMPERIO ·
-      ValorDeclarado mínimo $30.000 (vacío = $35.000) · Seguro = 2 % del declarado ·
+      ValorDeclarado mínimo $30.000 (vacío = $35.000) · Seguro = 0,5 % del declarado, mínimo $6.000 ·
       Total = Envío + Seguro · Abono solo si el TipoPago es Crédito.
+      <br><br>
+      <strong>TipoPago:</strong> Contado · Crédito · Contra entrega &nbsp;·&nbsp;
+      <strong>Fecha:</strong> se usa la fecha del día en que subes el archivo.
     </div>
 
     <div id="resultadoCarga"></div>
   `;
 
-  if (usuario && usuario.EsAdmin) cargarSelectorClientes();
+  if (esMultiClienteWeb()) cargarSelectorClientes();
 
   // Drag & drop
   const zone = document.getElementById("uploadZone");
@@ -220,14 +229,25 @@ function renderCargaMasiva(contenedor) {
 // de carga.gs → cargarEnvios(). Si agregas/quitas un campo requerido
 // en el backend, actualízalo también aquí.
 const COLUMNAS_REQUERIDAS = [
-  "FechaEnvio", "Unidades", "TipoMercancia", "PesoKg", "TipoPago",
+  "Unidades", "TipoMercancia", "PesoKg", "TipoPago",
   "Destinatario", "Origen", "Destino", "Direccion"
 ];
 const COLUMNAS_OPCIONALES = ["Kilo/ Vol", "Cedula", "Telefono", "Observacion", "ValorEnvio", "ValorDeclarado", "Abono"];
 
 // ── Reglas de valores (las mismas de Backend/Valores.gs) ────
 // El servidor vuelve a validar y calcular; esto es para avisar antes de importar.
-const REGLAS_VALORES = { minimo: 30000, porDefecto: 35000, seguro: 0.02 };
+const REGLAS_VALORES = {
+  minimo: 30000, porDefecto: 35000,
+  seguro: 0.005, seguroMinimo: 6000,                    // 0,5 % del declarado, mínimo $6.000
+  tiposPago: ["Contado", "Crédito", "Contra entrega"]
+};
+
+function normalizarTxt(v) {
+  return String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+}
+function tipoPagoValido(v) {
+  return REGLAS_VALORES.tiposPago.find(t => normalizarTxt(t) === normalizarTxt(v)) || null;
+}
 
 function montoWeb(v, campo) {
   if (v === undefined || v === null) return null;
@@ -276,7 +296,7 @@ function calcularValoresWeb(fila) {
     throw new Error("Abono solo aplica cuando el TipoPago es Crédito");
   if (credito && abono !== null && abono > 0 && !(envio > 0))
     throw new Error("Si el pago es Crédito con Abono, el ValorEnvio es obligatorio");
-  const seguro = Math.round(declarado * REGLAS_VALORES.seguro);
+  const seguro = Math.max(REGLAS_VALORES.seguroMinimo, Math.round(declarado * REGLAS_VALORES.seguro));
   const total = (envio || 0) + seguro;
   const ab = credito ? (abono || 0) : 0;
   if (envio !== null && envio > 0 && ab > total)
@@ -346,8 +366,8 @@ function validarYMostrarPrevia(nombreArchivo) {
       erroresFila.push(`Fila ${i + 2}: Unidades debe ser número`);
     if (fila.PesoKg && isNaN(Number(fila.PesoKg)))
       erroresFila.push(`Fila ${i + 2}: PesoKg debe ser número`);
-    if (fila.FechaEnvio !== "" && !fechaWeb(fila.FechaEnvio))
-      erroresFila.push(`Fila ${i + 2}: FechaEnvio no es una fecha válida (usa DD/MM/AAAA)`);
+    if (String(fila.TipoPago || "").trim() && !tipoPagoValido(fila.TipoPago))
+      erroresFila.push(`Fila ${i + 2}: TipoPago "${escHtml(fila.TipoPago)}" no es válido (usa Contado, Crédito o Contra entrega)`);
     try {
       fila._valores = calcularValoresWeb(fila);
     } catch (err) {
@@ -362,7 +382,7 @@ function validarYMostrarPrevia(nombreArchivo) {
   const colsValores = [
     ["Envío", v => v.ValorEnvio, "Por asignar"],
     ["Declarado", v => v.ValorDeclarado],
-    ["Seguro (2%)", v => v.ValorSeguro],
+    ["Seguro", v => v.ValorSeguro],
     ["Abono", v => v.Abono],
     ["Total*", v => v.ValorTotal],
     ["Saldo*", v => v.SaldoPendiente]
@@ -551,7 +571,7 @@ async function renderMisGuias(contenedor) {
     }
 
     guiasData = data.guias;
-    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true };
+    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true, multi: data.multiCliente === true || data.esAdmin === true };
     guiasSel.clear();
     paginaGuias = 1;
     renderPanelGuias(contenedor);
@@ -601,7 +621,7 @@ function renderPanelGuias(contenedor) {
         ${destinos.map(d => `<option value="${d}">${d}</option>`).join("")}
       </select>
 
-      ${guiasCfg.admin ? `<select id="filtroCliente" class="filtro-select">${opcionesClientesFiltro("")}</select>` : ""}
+      ${guiasCfg.multi ? `<select id="filtroCliente" class="filtro-select">${opcionesClientesFiltro("")}</select>` : ""}
 
       <input type="date" id="filtroDesde" class="filtro-fecha" title="Desde">
       <input type="date" id="filtroHasta" class="filtro-fecha" title="Hasta">
@@ -733,7 +753,7 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
           <tr>
             <th class="col-check"><input type="checkbox" id="chkPagina" title="Seleccionar esta página"
                 ${guias.every(g => guiasSel.has(String(g.EnvioID)) || g.PdfEstado === "bloqueado") && guias.some(g => g.PdfEstado !== "bloqueado") ? "checked" : ""}></th>
-            <th>Guía</th>${guiasCfg.admin ? "<th>Cliente</th>" : ""}<th>Fecha</th><th>Destinatario</th>
+            <th>Guía</th>${guiasCfg.multi ? "<th>Cliente</th>" : ""}<th>Fecha</th><th>Destinatario</th>
             <th>Destino</th><th>Valor</th><th>Estado</th><th>${guiasCfg.admin ? "Acciones" : "Guía PDF"}</th>
           </tr>
         </thead>
@@ -744,7 +764,7 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
                   ${guiasSel.has(String(g.EnvioID)) ? "checked" : ""}
                   ${g.PdfEstado === "bloqueado" ? "disabled title=\"Pendiente de valor\"" : ""}></td>
               <td class="col-guia" data-label="Guía"><b>${g.EnvioID}</b></td>
-              ${guiasCfg.admin ? `<td data-label="Cliente">${g.Cliente || "—"}</td>` : ""}
+              ${guiasCfg.multi ? `<td data-label="Cliente">${g.Cliente || "—"}</td>` : ""}
               <td data-label="Fecha">${formatearFecha(g.FechaEnvio)}</td>
               <td data-label="Destinatario">${g.Destinatario || "—"}</td>
               <td data-label="Destino">${g.Destino || "—"}</td>
@@ -920,24 +940,78 @@ async function generarGuiasLote(ids, regenerar) {
 }
 
 // Descarga cada PDF (el backend lo devuelve en base64)
+// Una guía → su PDF. Varias guías → se unen en un solo PDF (en el navegador, con pdf-lib).
 async function descargarGuias(ids) {
   if (!ids.length || guiasOcupado) return;
   guiasOcupado = true;
   const errores = [];
+  const pdfs = [];
+  let mensajeFinal = "";
   try {
     for (let i = 0; i < ids.length; i++) {
-      renderAccionesGuias(`⏳ Descargando ${i + 1} de ${ids.length}…`);
+      renderAccionesGuias(`⏳ Preparando ${i + 1} de ${ids.length}…`);
       const data = await obtenerPdf(ids[i]);
       if (!data.ok) { errores.push(`${ids[i]}: ${data.mensaje}`); continue; }
-      guardarPdf(data.base64, data.nombre || `Guia-${ids[i]}.pdf`);
-      await new Promise(r => setTimeout(r, 400)); // el navegador bloquea muchas descargas seguidas
+      pdfs.push({ id: ids[i], data });
+    }
+
+    if (pdfs.length === 1) {
+      guardarPdf(pdfs[0].data.base64, pdfs[0].data.nombre || `Guia-${pdfs[0].id}.pdf`);
+      mensajeFinal = "✅ Descarga lista.";
+    } else if (pdfs.length > 1) {
+      renderAccionesGuias(`⏳ Uniendo ${pdfs.length} guías en un solo PDF…`);
+      try {
+        const base64 = await unirPdfs(pdfs.map(p => p.data.base64));
+        const f = new Date();
+        const fecha = `${f.getFullYear()}${String(f.getMonth() + 1).padStart(2, "0")}${String(f.getDate()).padStart(2, "0")}`;
+        guardarPdf(base64, `Guias-${fecha}-${pdfs.length}.pdf`);
+        mensajeFinal = `✅ ${pdfs.length} guías unidas en un solo PDF.`;
+      } catch (err) {
+        // Si no se pudo unir (sin conexión a la librería), se descargan por separado
+        console.error("No se pudieron unir los PDF:", err);
+        for (const p of pdfs) {
+          guardarPdf(p.data.base64, p.data.nombre || `Guia-${p.id}.pdf`);
+          await new Promise(r => setTimeout(r, 400));
+        }
+        mensajeFinal = "✅ Descargadas por separado (no se pudieron unir).";
+      }
     }
   } catch (err) {
     if (err.message !== "Sesión expirada") errores.push("Error de conexión: " + err.message);
   } finally {
     guiasOcupado = false;
   }
-  renderAccionesGuias(errores.length ? `<span class="txt-error">⚠️ ${errores.join(" · ")}</span>` : "✅ Descarga lista.");
+  renderAccionesGuias(
+    (mensajeFinal ? mensajeFinal + " " : "") +
+    (errores.length ? `<span class="txt-error">⚠️ ${errores.join(" · ")}</span>` : "")
+  );
+}
+
+// Carga pdf-lib solo cuando se necesita (la primera vez que se unen PDFs)
+let pdfLibPromesa = null;
+function cargarPdfLib() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (!pdfLibPromesa) {
+    pdfLibPromesa = new Promise((ok, falla) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+      s.onload = () => (window.PDFLib ? ok(window.PDFLib) : falla(new Error("pdf-lib no disponible")));
+      s.onerror = () => { pdfLibPromesa = null; falla(new Error("No se pudo cargar pdf-lib")); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfLibPromesa;
+}
+
+async function unirPdfs(listaBase64) {
+  const { PDFDocument } = await cargarPdfLib();
+  const final = await PDFDocument.create();
+  for (const b64 of listaBase64) {
+    const doc = await PDFDocument.load(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+    const paginas = await final.copyPages(doc, doc.getPageIndices());
+    paginas.forEach(p => final.addPage(p));
+  }
+  return await final.saveAsBase64();
 }
 
 // Pide el PDF al backend una sola vez y lo guarda en memoria
@@ -1023,7 +1097,7 @@ async function actualizarGuias() {
     const data = await apiCall({ accion: "guias" });
     if (!data.ok) throw new Error(data.mensaje || "No se pudo actualizar.");
     guiasData = data.guias || [];
-    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true };
+    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true, multi: data.multiCliente === true || data.esAdmin === true };
     pdfCache.clear();
 
     // Mantiene la selección de las guías que siguen existiendo
@@ -1069,6 +1143,7 @@ function guardarPdf(base64, nombre) {
 // ADMINISTRADOR: clientes y edición de guías
 // ════════════════════════════════════════════════════════════
 let listaClientesCache = null;
+let clientePreseleccionado = "";
 
 async function obtenerListaClientes() {
   if (listaClientesCache) return listaClientesCache;
@@ -1085,6 +1160,8 @@ async function cargarSelectorClientes() {
     const clientes = await obtenerListaClientes();
     sel.innerHTML = `<option value="">— Selecciona el cliente —</option>` +
       clientes.map(c => `<option value="${escHtml(c.ClienteID)}">${escHtml(c.Nombre || c.ClienteID)}</option>`).join("");
+    if (clientes.length === 1) sel.value = clientes[0].ClienteID;          // un solo cliente: queda elegido
+    if (clientePreseleccionado) { sel.value = clientePreseleccionado; clientePreseleccionado = ""; }
   } catch (err) {
     if (err.message !== "Sesión expirada") sel.innerHTML = `<option value="">⚠️ ${escHtml(err.message)}</option>`;
   }
@@ -1165,8 +1242,12 @@ function pintarFormularioEdicion(data) {
           ${campo("PesoKg", "Peso (kg)", "number", 'min="0" step="any" required')}
           ${campo("PesoVol", "Kilo / Vol")}
           <label class="ed-campo"><span>Tipo de pago</span>
-            <input name="TipoPago" list="listaTiposPago" value="${v("TipoPago")}" required>
-            <datalist id="listaTiposPago">${(data.tiposPago || []).map(t => `<option value="${escHtml(t)}">`).join("")}</datalist></label>
+            <select name="TipoPago" required>${(() => {
+              const tipos = (data.tiposPago || REGLAS_VALORES.tiposPago).slice();
+              const actual = tipoPagoValido(g.TipoPago) || g.TipoPago;
+              if (actual && !tipos.includes(actual)) tipos.unshift(actual);   // valor antiguo fuera de la lista
+              return tipos.map(t => `<option value="${escHtml(t)}" ${t === actual ? "selected" : ""}>${escHtml(t)}</option>`).join("");
+            })()}</select></label>
           <label class="ed-campo ed-ancho"><span>Observación del envío</span><input name="ObsEnvio" value="${v("ObsEnvio")}"></label>
         </div>
 
@@ -1218,7 +1299,7 @@ function recalcularEdicion() {
   try {
     const v = calcularValoresWeb(d);
     caja.innerHTML = `
-      <span>Seguro (2 %): <b>${formatearPesos(v.ValorSeguro)}</b></span>
+      <span>Seguro: <b>${formatearPesos(v.ValorSeguro)}</b></span>
       <span>Total: <b>${formatearPesos(v.ValorTotal)}</b></span>
       <span>Saldo pendiente: <b>${formatearPesos(v.SaldoPendiente)}</b></span>
       ${v.ValorEnvio === null ? `<span class="valor-pend">Sin valor de envío: el PDF queda bloqueado</span>` : ""}`;
@@ -1278,6 +1359,189 @@ function cerrarEditorGuia() {
   if (m) m.remove();
   edicionOriginal = null;
   document.removeEventListener("keydown", escEditorGuia);
+}
+
+
+// ════════════════════════════════════════════════════════════
+// VISTA: NUEVO ENVÍO (carga individual)
+// Usa la misma acción "cargar" del masivo con una sola fila,
+// así las validaciones y cálculos son exactamente los mismos.
+// ════════════════════════════════════════════════════════════
+function renderNuevoEnvio(contenedor) {
+  const hoy = new Date();
+  const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  const multi = esMultiClienteWeb();
+
+  contenedor.innerHTML = `
+    <div class="vista-header">
+      <h2 class="vista-title">Nuevo Envío</h2>
+      <p class="vista-subtitle">Crea una guía individual con fecha de hoy (${hoy.toLocaleDateString("es-CO")}). Si son varios envíos, usa la <a href="#" id="irMasiva">Carga Masiva</a>.</p>
+    </div>
+
+    <form id="formNuevo" class="form-editar form-nuevo" novalidate>
+      ${multi ? `
+      <div class="selector-cliente">
+        <label for="cargaCliente">Cliente del envío</label>
+        <select id="cargaCliente" class="filtro-select" required><option value="">Cargando clientes…</option></select>
+      </div>` : ""}
+
+      <div class="tarjeta-form">
+        <h4>Envío</h4>
+        <div class="ed-grid">
+          <label class="ed-campo"><span>Unidades *</span><input type="number" name="Unidades" min="1" step="1" value="1" required></label>
+          <label class="ed-campo"><span>Tipo de mercancía *</span>
+            <select name="TipoMercancia" required>
+              <option value="">— Selecciona —</option>
+              <option value="Radicación">Radicación</option>
+              <option value="Premium">Premium</option>
+              <option value="Paquetería">Paquetería</option>
+            </select></label>
+          <label class="ed-campo"><span>Peso (kg) *</span><input type="number" name="PesoKg" min="0" step="any" required></label>
+          <label class="ed-campo"><span>Kilo / Vol</span><input name="Kilo/ Vol"></label>
+          <label class="ed-campo"><span>Tipo de pago *</span>
+            <select name="TipoPago" required>
+              <option value="">— Selecciona —</option>
+              <option value="Contado">Contado</option>
+              <option value="Crédito">Crédito</option>
+              <option value="Contra entrega">Contra entrega</option>
+            </select></label>
+          <label class="ed-campo ed-ancho"><span>Observación / contenido</span><input name="Observacion" maxlength="300"></label>
+        </div>
+      </div>
+
+      <div class="tarjeta-form">
+        <h4>Destinatario</h4>
+        <div class="ed-grid">
+          <label class="ed-campo"><span>Nombre *</span><input name="Destinatario" required maxlength="150"></label>
+          <label class="ed-campo"><span>Cédula / NIT</span><input name="Cedula" maxlength="30"></label>
+          <label class="ed-campo"><span>Teléfono</span><input type="tel" name="Telefono" maxlength="30"></label>
+          <label class="ed-campo"><span>Ciudad origen *</span><input name="Origen" required placeholder="Ej. Bogotá"></label>
+          <label class="ed-campo"><span>Ciudad destino *</span><input name="Destino" required placeholder="Ej. Medellín"></label>
+          <label class="ed-campo ed-ancho"><span>Dirección *</span><input name="Direccion" required maxlength="250"></label>
+        </div>
+      </div>
+
+      <div class="tarjeta-form">
+        <h4>Valores</h4>
+        <div class="ed-grid">
+          <label class="ed-campo"><span>Valor envío</span><input type="number" name="ValorEnvio" min="0" step="1" placeholder="Lo asigna TRANSIMPERIO"></label>
+          <label class="ed-campo"><span>Valor declarado</span><input type="number" name="ValorDeclarado" min="30000" step="1" placeholder="35000"></label>
+          <label class="ed-campo"><span>Abono (solo crédito)</span><input type="number" name="Abono" min="0" step="1"></label>
+        </div>
+        <div class="ed-calculados" id="nuevoCalculados"></div>
+      </div>
+
+      <div class="ed-error" id="nuevoError"></div>
+      <div class="ed-botones">
+        <button type="reset" class="btn-link" id="nuevoLimpiar">Limpiar</button>
+        <button type="submit" class="btn-primary" id="nuevoGuardar">📦 Crear envío</button>
+      </div>
+    </form>
+
+    <div id="nuevoResultado"></div>
+  `;
+
+  document.getElementById("irMasiva").addEventListener("click", e => {
+    e.preventDefault();
+    document.querySelector('.nav-item[data-vista="carga-masiva"]').click();
+  });
+  if (multi) cargarSelectorClientes();
+
+  const form = document.getElementById("formNuevo");
+  form.addEventListener("input", recalcularNuevo);
+  form.addEventListener("change", () => { document.getElementById("nuevoError").textContent = ""; });
+  form.addEventListener("reset", () => setTimeout(() => {
+    document.getElementById("nuevoError").textContent = "";
+    recalcularNuevo();
+  }, 0));
+  form.addEventListener("submit", crearEnvioIndividual);
+  recalcularNuevo();
+}
+
+function datosNuevoEnvio() {
+  const d = {};
+  new FormData(document.getElementById("formNuevo")).forEach((v, k) => { d[k] = typeof v === "string" ? v.trim() : v; });
+  return d;
+}
+
+function recalcularNuevo() {
+  const caja = document.getElementById("nuevoCalculados");
+  if (!caja) return;
+  try {
+    const v = calcularValoresWeb(datosNuevoEnvio());
+    caja.innerHTML = `
+      <span>Seguro: <b>${formatearPesos(v.ValorSeguro)}</b></span>
+      <span>Total: <b>${formatearPesos(v.ValorTotal)}</b></span>
+      <span>Saldo pendiente: <b>${formatearPesos(v.SaldoPendiente)}</b></span>
+      ${v.ValorEnvio === null ? `<span class="valor-pend">Sin valor de envío: TRANSIMPERIO lo asigna y el PDF queda pendiente</span>` : ""}`;
+    caja.classList.remove("con-error");
+  } catch (err) {
+    caja.innerHTML = `<span>⚠️ ${escHtml(err.message)}</span>`;
+    caja.classList.add("con-error");
+  }
+}
+
+async function crearEnvioIndividual(e) {
+  e.preventDefault();
+  const err = document.getElementById("nuevoError");
+  err.textContent = "";
+  const d = datosNuevoEnvio();
+
+  // Validación previa (el servidor vuelve a validar todo)
+  const faltan = COLUMNAS_REQUERIDAS.filter(c => !String(d[c] ?? "").trim());
+  const selCliente = document.getElementById("cargaCliente");
+  if (selCliente && !selCliente.value) { err.textContent = "Selecciona el cliente del envío."; selCliente.focus(); return; }
+  if (faltan.length) {
+    err.textContent = "Completa los campos obligatorios: " + faltan.join(", ");
+    const primero = document.querySelector(`#formNuevo [name="${faltan[0]}"]`);
+    if (primero) primero.focus();
+    return;
+  }
+  if (!(Number(d.Unidades) > 0)) { err.textContent = "Unidades debe ser mayor a 0."; return; }
+  try { calcularValoresWeb(d); } catch (ex) { err.textContent = ex.message; return; }
+
+  const btn = document.getElementById("nuevoGuardar");
+  btn.disabled = true;
+  btn.textContent = "Creando…";
+  try {
+    const data = await apiCall({
+      accion: "cargar",
+      clienteID: selCliente ? selCliente.value : undefined,
+      envios: [d]
+    });
+    if (!data.ok || !data.importados) {
+      const detalle = data.errores && data.errores.length
+        ? data.errores.map(x => x.replace(/^Fila \d+:\s*/, "")).join(" · ") : (data.mensaje || "No se pudo crear el envío.");
+      err.textContent = detalle;
+      return;
+    }
+    const guia = (data.guias || [])[0] || "";
+    const clienteTxt = selCliente ? selCliente.options[selCliente.selectedIndex].textContent : "";
+    document.getElementById("formNuevo").style.display = "none";
+    document.getElementById("nuevoResultado").innerHTML = `
+      <div class="resultado-card resultado-ok">
+        <div class="resultado-icono">✅</div>
+        <h3 class="resultado-titulo">Envío creado</h3>
+        <p class="resultado-lote">Número de guía: <code>${escHtml(guia)}</code>${clienteTxt ? ` · ${escHtml(clienteTxt)}` : ""}</p>
+        <p class="preview-note">Puedes generar su PDF en <b>Mis Guías</b>${d.ValorEnvio ? "" : " cuando TRANSIMPERIO asigne el valor del envío"}.</p>
+        <div class="resultado-acciones">
+          <button class="btn-primary" id="nuevoOtro">➕ Crear otro envío</button>
+          <button class="btn-secundario btn-sm" id="nuevoIrGuias">Ir a Mis Guías</button>
+        </div>
+      </div>`;
+    document.getElementById("nuevoOtro").addEventListener("click", () => {
+      // conserva el cliente elegido para cargar el siguiente más rápido
+      clientePreseleccionado = selCliente ? selCliente.value : "";
+      renderNuevoEnvio(document.getElementById("contenido"));
+    });
+    document.getElementById("nuevoIrGuias").addEventListener("click",
+      () => document.querySelector('.nav-item[data-vista="mis-guias"]').click());
+  } catch (ex) {
+    if (ex.message !== "Sesión expirada") err.textContent = "Error de conexión: " + ex.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "📦 Crear envío";
+  }
 }
 
 // ════════════════════════════════════════════════════════════
