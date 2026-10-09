@@ -1335,3 +1335,8 @@
     .header-salir-txt { display: none; }   /* en pantallas muy angostas solo el ícono */
     .header-salir { padding: 7px 10px; }
 }
+
+/* ── Valores calculados en la vista previa de carga ── */
+.preview-table th.th-valor { background: var(--blue-700); white-space: nowrap; }
+.preview-table td.td-valor { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.preview-table .valor-pend { color: var(--gray-400); font-style: italic; font-size: 12px; }

@@ -93,3 +93,24 @@ function mostrarError(texto) {
 //             "✅ El login visual ya funciona. En el siguiente paso lo conectaremos con Google Sheets.";
 //     }, 1200);
 // });
+
+// ── Ver / ocultar contraseña ──
+(function () {
+    const btn = document.getElementById("btnVerClave");
+    const input = document.getElementById("password");
+    if (!btn || !input) return;
+    btn.addEventListener("click", () => {
+        const mostrar = input.type === "password";
+        input.type = mostrar ? "text" : "password";
+        btn.classList.toggle("visible", mostrar);
+        const txt = mostrar ? "Ocultar contraseña" : "Mostrar contraseña";
+        btn.setAttribute("aria-label", txt);
+        btn.title = txt;
+        input.focus();
+    });
+    // Al enviar el formulario se vuelve a ocultar
+    document.getElementById("loginForm").addEventListener("submit", () => {
+        input.type = "password";
+        btn.classList.remove("visible");
+    });
+})();

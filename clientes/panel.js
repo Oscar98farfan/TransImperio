@@ -168,7 +168,12 @@ function renderCargaMasiva(contenedor) {
       Destinatario · Origen · Destino · Direccion
       <br><br>
       <strong>Columnas opcionales:</strong><br>
-      Kilo/ Vol · Cedula · Telefono · Observacion
+      Kilo/ Vol · Cedula · Telefono · Observacion · ValorEnvio · ValorDeclarado · Abono
+      <br><br>
+      <strong>Valores:</strong><br>
+      ValorEnvio: llénalo si manejas lista de precios; si lo dejas vacío lo asigna TRANSIMPERIO ·
+      ValorDeclarado mínimo $30.000 (vacío = $35.000) · Seguro = 2 % del declarado ·
+      Total = Envío + Seguro · Abono solo si el TipoPago es Crédito.
     </div>
 
     <div id="resultadoCarga"></div>
@@ -199,7 +204,64 @@ const COLUMNAS_REQUERIDAS = [
   "FechaEnvio", "Unidades", "TipoMercancia", "PesoKg", "TipoPago",
   "Destinatario", "Origen", "Destino", "Direccion"
 ];
-const COLUMNAS_OPCIONALES = ["Kilo/ Vol", "Cedula", "Telefono", "Observacion"];
+const COLUMNAS_OPCIONALES = ["Kilo/ Vol", "Cedula", "Telefono", "Observacion", "ValorEnvio", "ValorDeclarado", "Abono"];
+
+// ── Reglas de valores (las mismas de Backend/Valores.gs) ────
+// El servidor vuelve a validar y calcular; esto es para avisar antes de importar.
+const REGLAS_VALORES = { minimo: 30000, porDefecto: 35000, seguro: 0.02 };
+
+function montoWeb(v, campo) {
+  if (v === undefined || v === null) return null;
+  if (typeof v === "number") {
+    if (!isFinite(v) || v < 0) throw new Error(`${campo} debe ser un número mayor o igual a 0`);
+    return Math.round(v);
+  }
+  let t = String(v).trim().replace(/[$\s]/g, "");
+  if (t === "") return null;
+  if (t.includes(",") && t.includes(".")) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  else if (/^\d{1,3}(,\d{3})+$/.test(t)) t = t.replace(/,/g, "");
+  else t = t.replace(",", ".");
+  const n = Number(t);
+  if (!isFinite(n) || n < 0) throw new Error(`${campo} debe ser un número mayor o igual a 0`);
+  return Math.round(n);
+}
+
+function esCreditoWeb(tipoPago) {
+  return String(tipoPago || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").startsWith("credito");
+}
+
+// FechaEnvio: Excel la entrega como número de serie (46310) → Date
+function fechaWeb(v) {
+  if (typeof v === "number" && v > 20000 && v < 80000) {
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  const t = String(v ?? "").trim();
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = t.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+  return null;
+}
+
+function calcularValoresWeb(fila) {
+  const envio = montoWeb(fila.ValorEnvio, "ValorEnvio");
+  let declarado = montoWeb(fila.ValorDeclarado, "ValorDeclarado");
+  const abono = montoWeb(fila.Abono, "Abono");
+  const credito = esCreditoWeb(fila.TipoPago);
+  if (declarado === null) declarado = REGLAS_VALORES.porDefecto;
+  if (declarado < REGLAS_VALORES.minimo)
+    throw new Error(`ValorDeclarado debe ser mínimo ${formatearPesos(REGLAS_VALORES.minimo)}`);
+  if (abono !== null && abono > 0 && !credito)
+    throw new Error("Abono solo aplica cuando el TipoPago es Crédito");
+  const seguro = Math.round(declarado * REGLAS_VALORES.seguro);
+  const total = (envio || 0) + seguro;
+  const ab = credito ? (abono || 0) : 0;
+  if (envio !== null && envio > 0 && ab > total)
+    throw new Error(`Abono no puede ser mayor al ValorTotal (${formatearPesos(total)})`);
+  return { ValorEnvio: envio, ValorDeclarado: declarado, ValorSeguro: seguro, ValorTotal: total, Abono: ab, SaldoPendiente: total - ab };
+}
 const TODAS_COLUMNAS = [...COLUMNAS_REQUERIDAS, ...COLUMNAS_OPCIONALES];
 
 // ── Leer y parsear archivo ──────────────────────────────────
@@ -263,9 +325,27 @@ function validarYMostrarPrevia(nombreArchivo) {
       erroresFila.push(`Fila ${i + 2}: Unidades debe ser número`);
     if (fila.PesoKg && isNaN(Number(fila.PesoKg)))
       erroresFila.push(`Fila ${i + 2}: PesoKg debe ser número`);
+    if (fila.FechaEnvio !== "" && !fechaWeb(fila.FechaEnvio))
+      erroresFila.push(`Fila ${i + 2}: FechaEnvio no es una fecha válida (usa DD/MM/AAAA)`);
+    try {
+      fila._valores = calcularValoresWeb(fila);
+    } catch (err) {
+      fila._valores = null;
+      erroresFila.push(`Fila ${i + 2}: ${err.message}`);
+    }
   });
 
-  const colsMostrar = TODAS_COLUMNAS.filter(c => columnas.includes(c));
+  const colsMostrar = TODAS_COLUMNAS.filter(c => columnas.includes(c) && !["ValorEnvio", "ValorDeclarado", "Abono"].includes(c));
+  const hayPendientes = datosCarga.some(f => f._valores && f._valores.ValorEnvio === null);
+  // Columnas de valores calculados (se muestran siempre)
+  const colsValores = [
+    ["Envío", v => v.ValorEnvio, "Por asignar"],
+    ["Declarado", v => v.ValorDeclarado],
+    ["Seguro (2%)", v => v.ValorSeguro],
+    ["Abono", v => v.Abono],
+    ["Total*", v => v.ValorTotal],
+    ["Saldo*", v => v.SaldoPendiente]
+  ];
   const muestra = datosCarga.slice(0, 10);
 
   let htmlErrores = "";
@@ -288,12 +368,17 @@ function validarYMostrarPrevia(nombreArchivo) {
       <div class="table-scroll">
         <table class="preview-table">
           <thead>
-            <tr>${colsMostrar.map(c => `<th>${c}</th>`).join("")}</tr>
+            <tr>${colsMostrar.map(c => `<th>${c}</th>`).join("")}${colsValores.map(([t]) => `<th class="th-valor">${t}</th>`).join("")}</tr>
           </thead>
           <tbody>
             ${muestra.map(fila =>
     `<tr>${colsMostrar.map(c =>
-      `<td>${fila[c] !== undefined && fila[c] !== "" ? fila[c] : "—"}</td>`
+      `<td>${c === "FechaEnvio" && fechaWeb(fila[c])
+        ? fechaWeb(fila[c]).toLocaleDateString("es-CO")
+        : (fila[c] !== undefined && fila[c] !== "" ? fila[c] : "—")}</td>`
+    ).join("")}${colsValores.map(([, f, vacio]) =>
+      `<td class="td-valor">${!fila._valores ? "⚠️"
+        : (f(fila._valores) === null ? `<span class="valor-pend">${vacio}</span>` : formatearPesos(f(fila._valores)))}</td>`
     ).join("")}</tr>`
   ).join("")}
           </tbody>
@@ -302,6 +387,7 @@ function validarYMostrarPrevia(nombreArchivo) {
       ${datosCarga.length > 10
       ? `<p class="preview-note">Mostrando 10 de ${datosCarga.length} registros.</p>`
       : ""}
+      ${hayPendientes ? `<p class="preview-note">* En las filas con envío "Por asignar", el Total y el Saldo se recalculan cuando TRANSIMPERIO asigne el valor.</p>` : ""}
       ${htmlErrores}
       <div class="preview-footer">
         <button class="btn-link" onclick="renderCargaMasiva(document.getElementById('contenido'))">
@@ -353,7 +439,7 @@ async function importarDatos() {
   try {
     const data = await apiCall({
       accion: "cargar",
-      envios: datosCarga
+      envios: datosCarga.map(({ _valores, ...fila }) => fila)
     });
 
     clearInterval(intervalo);
