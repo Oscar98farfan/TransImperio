@@ -108,6 +108,7 @@ function cerrarSesion() {
   if (token) fetch(API_URL, { method: "POST", keepalive: true, body: JSON.stringify({ accion: "logout", token }) }).catch(() => {});
   sessionStorage.removeItem("token");
   sessionStorage.removeItem("usuario");
+  try { sessionStorage.removeItem(claveGuiasLocal()); } catch (e) {}
   window.location.href = "index.html";
 }
 
@@ -551,6 +552,18 @@ function _mostrarResultado(data) {
 // VISTA: MIS GUÍAS
 // ════════════════════════════════════════════════════════════
 async function renderMisGuias(contenedor) {
+  // Si ya tenemos las guías de antes (esta sesión), se muestran al instante
+  // y se actualizan en segundo plano.
+  const local = guiasData.length ? null : leerGuiasLocal();
+  if (guiasData.length || local) {
+    if (local) aplicarDatosGuias(local);
+    guiasSel.clear();
+    paginaGuias = 1;
+    renderPanelGuias(contenedor);
+    actualizarGuias({ silencioso: true });
+    return;
+  }
+
   contenedor.innerHTML = `
     <div class="vista-header">
       <h2 class="vista-title">Mis Guías</h2>
@@ -565,13 +578,14 @@ async function renderMisGuias(contenedor) {
     const data = await apiCall({ accion: "guias" });
 
     if (!data.ok || !data.guias || !data.guias.length) {
-      document.getElementById("guiasEstado").innerHTML = `
-        <div class="icono">📭</div><p>No tienes guías registradas aún.</p>`;
+      document.getElementById("guiasEstado").innerHTML = data.ok === false && data.mensaje
+        ? `<div class="icono">⚠️</div><p>${escHtml(data.mensaje)}</p>`
+        : `<div class="icono">📭</div><p>No tienes guías registradas aún.</p>`;
       return;
     }
 
-    guiasData = data.guias;
-    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true, multi: data.multiCliente === true || data.esAdmin === true };
+    aplicarDatosGuias(data);
+    guardarGuiasLocal(data);
     guiasSel.clear();
     paginaGuias = 1;
     renderPanelGuias(contenedor);
@@ -581,6 +595,61 @@ async function renderMisGuias(contenedor) {
       <div class="icono">⚠️</div><p>Error al cargar las guías. Intenta de nuevo.</p>`;
     console.error(err);
   }
+}
+
+// ── Datos de guías: aplicar respuesta y copia local (sessionStorage) ──
+let guiasActualizado = 0;   // hora (ms) en que el servidor armó la lista
+let cuotaGoogle = null;     // consumo diario de Google (solo llega para R1)
+
+// ── Consumo diario de Google (solo administrador) ──
+function htmlCuota() {
+  const c = cuotaGoogle;
+  if (!c) return "";
+  const nivel = (usado, limite) => { const p = limite ? usado / limite : 0; return p >= 0.9 ? "alto" : p >= 0.7 ? "medio" : "ok"; };
+  return `<span class="cuota-item cuota-${nivel(c.pdf, c.pdfLimite)}"
+                title="PDF de guías generados hoy. Google permite unos ${c.pdfLimite} por día en una cuenta Gmail gratuita.">📄 PDF hoy: ${c.pdf} / ${c.pdfLimite}</span>
+          <span class="cuota-item cuota-${nivel(c.activadorMin, c.activadorLimite)}"
+                title="Minutos usados hoy por el calentador automático (límite diario de activadores de Google).">⏱ Calentador: ${c.activadorMin} / ${c.activadorLimite} min</span>`;
+}
+
+function refrescarCuota() {
+  const el = document.getElementById("cuotaInfo");
+  if (el) el.innerHTML = htmlCuota();
+}
+
+function aplicarDatosGuias(data) {
+  guiasData = data.guias || [];
+  guiasActualizado = data.actualizado || Date.now();
+  if (data.cuota) cuotaGoogle = data.cuota;
+  guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5,
+               admin: data.esAdmin === true, multi: data.multiCliente === true || data.esAdmin === true };
+}
+
+function claveGuiasLocal() {
+  return "guias:" + ((usuario && usuario.Email) || "");
+}
+
+function guardarGuiasLocal(data) {
+  try {
+    sessionStorage.setItem(claveGuiasLocal(), JSON.stringify({
+      guias: data.guias || [], actualizado: data.actualizado || Date.now(), esAdmin: data.esAdmin, cuota: data.cuota,
+      multiCliente: data.multiCliente, bloquearSinValor: data.bloquearSinValor, maxPorSolicitud: data.maxPorSolicitud
+    }));
+  } catch (e) { /* sin espacio o bloqueado: no pasa nada */ }
+}
+
+function leerGuiasLocal() {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(claveGuiasLocal()) || "null");
+    return d && d.guias && d.guias.length ? d : null;
+  } catch (e) { return null; }
+}
+
+function textoActualizado() {
+  const t = new Date(guiasActualizado || Date.now());
+  const min = Math.round((Date.now() - t) / 60000);
+  const hora = t.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  return min >= 2 ? `Datos de las ${hora} (hace ${min} min)` : `Actualizado ${hora}`;
 }
 
 // ── Arma resumen + filtros + tabla + paginación ────────────
@@ -594,7 +663,8 @@ function renderPanelGuias(contenedor) {
         <p class="vista-subtitle">Historial de envíos asociados a tu cuenta.</p>
       </div>
       <div class="actualizar-wrap">
-        <span class="actualizado-txt" id="guiasActualizado">Actualizado ${horaActual()}</span>
+        <span class="actualizado-txt" id="guiasActualizado">${textoActualizado()}</span>
+        ${guiasCfg.admin ? `<span class="cuota-info" id="cuotaInfo">${htmlCuota()}</span>` : ""}
         <button class="btn-secundario btn-sm" id="btnActualizarGuias" title="Volver a consultar las guías">🔄 Actualizar</button>
       </div>
     </div>
@@ -621,7 +691,20 @@ function renderPanelGuias(contenedor) {
         ${destinos.map(d => `<option value="${d}">${d}</option>`).join("")}
       </select>
 
-      ${guiasCfg.multi ? `<select id="filtroCliente" class="filtro-select">${opcionesClientesFiltro("")}</select>` : ""}
+      ${guiasCfg.multi ? `
+      <div class="filtro-multi" id="filtroClientes">
+        <button type="button" class="filtro-select filtro-multi-btn" id="btnFiltroClientes" aria-expanded="false">
+          <span id="txtFiltroClientes">Todos los clientes</span><span class="filtro-multi-flecha">▾</span>
+        </button>
+        <div class="filtro-multi-panel" id="panelFiltroClientes" hidden>
+          <input type="text" class="filtro-multi-buscar" id="buscarFiltroClientes" placeholder="🔎 Buscar cliente…" autocomplete="off">
+          <div class="filtro-multi-acciones">
+            <button type="button" class="btn-link" data-accion="visibles">✓ Marcar los que se ven</button>
+            <button type="button" class="btn-link" data-accion="ninguno">✕ Quitar todos</button>
+          </div>
+          <div class="filtro-multi-lista" id="listaFiltroClientes"></div>
+        </div>
+      </div>` : ""}
 
       <input type="date" id="filtroDesde" class="filtro-fecha" title="Desde">
       <input type="date" id="filtroHasta" class="filtro-fecha" title="Hasta">
@@ -635,7 +718,8 @@ function renderPanelGuias(contenedor) {
   `;
 
   document.getElementById("guiasTablaWrap").addEventListener("click", onClickTablaGuias);
-  document.getElementById("btnActualizarGuias").addEventListener("click", actualizarGuias);
+  document.getElementById("btnActualizarGuias").addEventListener("click", () => actualizarGuias({ forzar: true }));
+  if (guiasCfg.multi) iniciarFiltroClientes();
   document.getElementById("guiasTablaWrap").addEventListener("change", onCambioCheckGuias);
 
   ["filtroTexto", "filtroEstado", "filtroDestino", "filtroDesde", "filtroHasta", "filtroCliente"]
@@ -651,7 +735,8 @@ function renderPanelGuias(contenedor) {
     document.getElementById("filtroDestino").value = "";
     document.getElementById("filtroDesde").value = "";
     document.getElementById("filtroHasta").value = "";
-    if (document.getElementById("filtroCliente")) document.getElementById("filtroCliente").value = "";
+    filtroClientesSel.clear();
+    if (guiasCfg.multi) renderListaFiltroClientes();
     paginaGuias = 1;
     aplicarFiltrosGuias();
   });
@@ -666,8 +751,6 @@ function aplicarFiltrosGuias() {
   const destino = document.getElementById("filtroDestino").value;
   const desde = document.getElementById("filtroDesde").value;
   const hasta = document.getElementById("filtroHasta").value;
-  const filtroCli = document.getElementById("filtroCliente");
-  const cliente = filtroCli ? filtroCli.value : "";
 
   guiasFiltradas = guiasData.filter(g => {
     if (texto) {
@@ -676,7 +759,7 @@ function aplicarFiltrosGuias() {
       const enCli = String(g.Cliente || "").toLowerCase().includes(texto);
       if (!enGuia && !enDest && !enCli) return false;
     }
-    if (cliente && g.ClienteID !== cliente) return false;
+    if (filtroClientesSel.size && !filtroClientesSel.has(g.ClienteID)) return false;
     if (estado && (g.EstadoGuia || "") !== estado) return false;
     if (destino && g.Destino !== destino) return false;
 
@@ -920,6 +1003,7 @@ async function generarGuiasLote(ids, regenerar) {
       renderAccionesGuias(`⏳ Generando PDF… ${hechas} de ${ids.length}`);
       const data = await apiCall({ accion: "generarGuias", guias: tanda, regenerar });
       if (!data.ok) { errores.push(data.mensaje || "Error al generar."); break; }
+      if (data.cuota) { cuotaGoogle = data.cuota; refrescarCuota(); }
       data.resultados.forEach(r => {
         const g = guiasData.find(x => String(x.EnvioID) === String(r.EnvioID));
         if (g && r.PdfEstado) g.PdfEstado = r.PdfEstado;
@@ -1088,16 +1172,20 @@ function cerrarVisorPdf() {
 }
 
 // ── Botón "Actualizar": vuelve a pedir las guías sin recargar la página ──
-async function actualizarGuias() {
+//   forzar:     true = el servidor lee las hojas de nuevo (ignora su memoria)
+//   silencioso: true = actualización en segundo plano (sin mensajes de error)
+async function actualizarGuias(opc) {
+  opc = opc || {};
   const btn = document.getElementById("btnActualizarGuias");
   if (!btn || guiasOcupado) return;
   btn.disabled = true;
   btn.textContent = "⏳ Actualizando…";
   try {
-    const data = await apiCall({ accion: "guias" });
+    const data = await apiCall({ accion: "guias", forzar: opc.forzar === true });
     if (!data.ok) throw new Error(data.mensaje || "No se pudo actualizar.");
-    guiasData = data.guias || [];
-    guiasCfg = { bloquear: data.bloquearSinValor !== false, max: data.maxPorSolicitud || 5, admin: data.esAdmin === true, multi: data.multiCliente === true || data.esAdmin === true };
+    if (!document.getElementById("guiasTablaWrap")) return;   // el usuario ya cambió de vista
+    aplicarDatosGuias(data);
+    guardarGuiasLocal(data);
     pdfCache.clear();
 
     // Mantiene la selección de las guías que siguen existiendo
@@ -1110,16 +1198,16 @@ async function actualizarGuias() {
     const destinos = [...new Set(guiasData.map(g => g.Destino).filter(Boolean))].sort();
     sel.innerHTML = `<option value="">Todos los destinos</option>` +
       destinos.map(d => `<option value="${d}" ${d === actual ? "selected" : ""}>${d}</option>`).join("");
-    const selCli = document.getElementById("filtroCliente");
-    if (selCli) selCli.innerHTML = opcionesClientesFiltro(selCli.value);
+    if (document.getElementById("listaFiltroClientes")) renderListaFiltroClientes();
 
     aplicarFiltrosGuias();  // conserva los filtros y la página actual
-    document.getElementById("guiasActualizado").textContent = "Actualizado " + horaActual();
+    document.getElementById("guiasActualizado").textContent = textoActualizado();
+    refrescarCuota();
   } catch (err) {
-    if (err.message !== "Sesión expirada") renderAccionesGuias(`<span class="txt-error">⚠️ ${err.message}</span>`);
+    if (!opc.silencioso && err.message !== "Sesión expirada") renderAccionesGuias(`<span class="txt-error">⚠️ ${err.message}</span>`);
   } finally {
-    btn.disabled = false;
-    btn.textContent = "🔄 Actualizar";
+    const b = document.getElementById("btnActualizarGuias");
+    if (b) { b.disabled = false; b.textContent = "🔄 Actualizar"; }
   }
 }
 
@@ -1168,12 +1256,97 @@ async function cargarSelectorClientes() {
 }
 
 // Opciones del filtro "Cliente" en Mis Guías (a partir de las guías cargadas)
-function opcionesClientesFiltro(seleccionado) {
+// ── Filtro de clientes con selección múltiple (administrador / comercial) ──
+const filtroClientesSel = new Set();   // vacío = todos los clientes
+let filtroClientesOyente = false;
+
+function clientesDeGuias() {
   const mapa = {};
-  guiasData.forEach(g => { if (g.ClienteID) mapa[g.ClienteID] = g.Cliente || g.ClienteID; });
-  const ids = Object.keys(mapa).sort((a, b) => mapa[a].localeCompare(mapa[b]));
-  return `<option value="">Todos los clientes</option>` +
-    ids.map(id => `<option value="${escHtml(id)}" ${id === seleccionado ? "selected" : ""}>${escHtml(mapa[id])}</option>`).join("");
+  guiasData.forEach(g => {
+    if (!g.ClienteID) return;
+    if (!mapa[g.ClienteID]) mapa[g.ClienteID] = { id: g.ClienteID, nombre: g.Cliente || g.ClienteID, total: 0 };
+    mapa[g.ClienteID].total++;
+  });
+  return Object.values(mapa).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
+function iniciarFiltroClientes() {
+  const btn = document.getElementById("btnFiltroClientes");
+  const panel = document.getElementById("panelFiltroClientes");
+  const buscar = document.getElementById("buscarFiltroClientes");
+
+  btn.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    btn.setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) { buscar.value = ""; renderListaFiltroClientes(); buscar.focus(); }
+  });
+  buscar.addEventListener("input", renderListaFiltroClientes);
+  buscar.addEventListener("keydown", e => { if (e.key === "Escape") { panel.hidden = true; btn.focus(); } });
+
+  document.getElementById("listaFiltroClientes").addEventListener("change", e => {
+    const cb = e.target.closest("input[type=checkbox]");
+    if (!cb) return;
+    if (cb.checked) filtroClientesSel.add(cb.value); else filtroClientesSel.delete(cb.value);
+    cambioFiltroClientes();
+  });
+
+  panel.querySelector(".filtro-multi-acciones").addEventListener("click", e => {
+    const accion = e.target.closest("[data-accion]");
+    if (!accion) return;
+    if (accion.dataset.accion === "ninguno") filtroClientesSel.clear();
+    else document.querySelectorAll("#listaFiltroClientes input[type=checkbox]").forEach(cb => filtroClientesSel.add(cb.value));
+    renderListaFiltroClientes();
+    cambioFiltroClientes();
+  });
+
+  // Cierra al hacer clic fuera (el oyente se agrega una sola vez)
+  if (filtroClientesOyente) { actualizarTextoFiltroClientes(); return; }
+  filtroClientesOyente = true;
+  document.addEventListener("click", e => {
+    const caja = document.getElementById("filtroClientes");
+    const p = document.getElementById("panelFiltroClientes");
+    if (caja && p && !p.hidden && !caja.contains(e.target)) {
+      p.hidden = true;
+      document.getElementById("btnFiltroClientes").setAttribute("aria-expanded", "false");
+    }
+  });
+
+  actualizarTextoFiltroClientes();
+}
+
+function renderListaFiltroClientes() {
+  const lista = document.getElementById("listaFiltroClientes");
+  if (!lista) return;
+  const q = normalizarTxt(document.getElementById("buscarFiltroClientes").value).replace(/[^a-z0-9]/g, "");
+  const clientes = clientesDeGuias().filter(c => !q || normalizarTxt(c.nombre).replace(/[^a-z0-9]/g, "").includes(q));
+  lista.innerHTML = clientes.length
+    ? clientes.map(c => `
+        <label class="filtro-multi-item">
+          <input type="checkbox" value="${escHtml(c.id)}" ${filtroClientesSel.has(c.id) ? "checked" : ""}>
+          <span class="filtro-multi-nombre">${escHtml(c.nombre)}</span>
+          <span class="filtro-multi-num">${c.total}</span>
+        </label>`).join("")
+    : `<div class="filtro-multi-vacio">Sin coincidencias</div>`;
+  actualizarTextoFiltroClientes();
+}
+
+function actualizarTextoFiltroClientes() {
+  const txt = document.getElementById("txtFiltroClientes");
+  if (!txt) return;
+  const n = filtroClientesSel.size;
+  if (!n) { txt.textContent = "Todos los clientes"; return; }
+  if (n === 1) {
+    const c = clientesDeGuias().find(x => filtroClientesSel.has(x.id));
+    txt.textContent = c ? c.nombre : "1 cliente";
+    return;
+  }
+  txt.textContent = n + " clientes";
+}
+
+function cambioFiltroClientes() {
+  actualizarTextoFiltroClientes();
+  paginaGuias = 1;
+  aplicarFiltrosGuias();
 }
 
 function escHtml(v) {

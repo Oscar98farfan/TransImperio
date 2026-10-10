@@ -1415,3 +1415,55 @@
     .tarjeta-form { padding: 14px 12px; }
     .form-nuevo .ed-botones .btn-primary { flex: 1; }
 }
+
+/* ── Filtro de clientes (selección múltiple) ── */
+.filtro-multi { position: relative; }
+.filtro-multi-btn {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-width: 190px; max-width: 260px; cursor: pointer; text-align: left;
+}
+.filtro-multi-btn span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filtro-multi-flecha { font-size: 11px; color: var(--gray-500, #6b7280); }
+.filtro-multi-panel {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+    width: 300px; max-width: 90vw; background: white;
+    border: 1px solid var(--blue-100); border-radius: var(--radius-md);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, .15); padding: 10px;
+}
+.filtro-multi-buscar {
+    width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 13px;
+    border: 1px solid var(--blue-100); border-radius: var(--radius-md); font-family: var(--font-body);
+}
+.filtro-multi-buscar:focus { outline: none; border-color: var(--blue-500); }
+.filtro-multi-acciones { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0 4px; }
+.filtro-multi-acciones .btn-link { font-size: 12px; padding: 2px 0; }
+.filtro-multi-lista { max-height: 260px; overflow-y: auto; }
+.filtro-multi-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 6px;
+    border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--gray-700);
+}
+.filtro-multi-item:hover { background: var(--blue-50, #eff6ff); }
+.filtro-multi-item input { flex: none; width: 16px; height: 16px; margin: 0; }
+.filtro-multi-nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filtro-multi-num { font-size: 11px; color: var(--gray-500, #6b7280); background: var(--gray-100, #f3f4f6); border-radius: 10px; padding: 1px 7px; }
+.filtro-multi-vacio { padding: 10px 6px; font-size: 13px; color: var(--gray-500, #6b7280); }
+
+@media (max-width: 768px) {
+    .guias-filtros .filtro-multi { grid-column: 1 / -1; }
+    .filtro-multi-btn { max-width: none; width: 100%; }
+    .filtro-multi-panel { width: 100%; max-width: none; box-sizing: border-box; }
+}
+
+/* ── Consumo diario de Google (solo administrador) ── */
+.cuota-info { display: flex; flex-wrap: wrap; gap: 6px; }
+.cuota-item {
+    font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid transparent; white-space: nowrap; cursor: help;
+}
+.cuota-ok    { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.cuota-medio { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.cuota-alto  { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.actualizar-wrap { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 768px) {
+    .cuota-info { order: 3; width: 100%; }
+}
