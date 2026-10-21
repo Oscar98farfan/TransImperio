@@ -844,8 +844,7 @@ function renderTablaGuias(guias, totalFiltradas, inicio) {
           ${guias.map(g => `
             <tr class="${guiasSel.has(String(g.EnvioID)) ? "fila-sel" : ""}">
               <td class="col-check"><input type="checkbox" class="chk-guia" data-id="${g.EnvioID}"
-                  ${guiasSel.has(String(g.EnvioID)) ? "checked" : ""}
-                  ${g.PdfEstado === "bloqueado" ? "disabled title=\"Pendiente de valor\"" : ""}></td>
+                  ${guiasSel.has(String(g.EnvioID)) ? "checked" : ""}></td>
               <td class="col-guia" data-label="Guía"><b>${g.EnvioID}</b></td>
               ${guiasCfg.multi ? `<td data-label="Cliente">${g.Cliente || "—"}</td>` : ""}
               <td data-label="Fecha">${formatearFecha(g.FechaEnvio)}</td>
@@ -912,7 +911,9 @@ function renderPaginacionGuias(totalPaginas, totalFiltradas) {
 function celdaPdf(g) {
   const editar = g.Editable
     ? `<button class="btn-mini btn-mini-editar" data-accion="editar" data-id="${g.EnvioID}" title="Editar guía">✏️ Editar</button>` : "";
-  return editar + celdaPdfBotones(g);
+  const rotulo = `<button class="btn-mini btn-mini-sec" data-accion="rotulos" data-id="${g.EnvioID}"
+                   title="Rótulos 10 × 10 cm (${unidadesRotulo(g)} unidad${unidadesRotulo(g) === 1 ? "" : "es"})">🏷</button>`;
+  return editar + celdaPdfBotones(g) + rotulo;
 }
 
 function celdaPdfBotones(g) {
@@ -957,6 +958,7 @@ function onClickTablaGuias(e) {
   if (btn.dataset.accion === "descargar") descargarGuias([id]);
   if (btn.dataset.accion === "generar") generarGuiasLote([id], false);
   if (btn.dataset.accion === "regenerar") generarGuiasLote([id], true);
+  if (btn.dataset.accion === "rotulos") verRotulos([id]);
 }
 
 // Barra de acciones sobre la tabla
@@ -970,7 +972,7 @@ function renderAccionesGuias(mensaje) {
 
   wrap.innerHTML = `
     <div class="guias-acciones-izq">
-      <span class="sel-count">${sel.length ? `<b>${sel.length}</b> seleccionada(s)` : "Selecciona guías para generar o descargar sus PDF"}</span>
+      <span class="sel-count">${sel.length ? `<b>${sel.length}</b> seleccionada(s)` : "Selecciona guías para generar o descargar sus PDF, o para imprimir rótulos"}</span>
       ${sel.length ? `<button class="btn-link" id="btnQuitarSel">Quitar selección</button>` : ""}
     </div>
     <div class="guias-acciones-der">
@@ -978,6 +980,9 @@ function renderAccionesGuias(mensaje) {
         📄 Generar PDF${porGenerar.length ? ` (${porGenerar.length})` : ""}</button>
       <button class="btn-secundario btn-sm" id="btnDescargarSel" ${listas.length && !guiasOcupado ? "" : "disabled"}>
         ⬇ Descargar${listas.length ? ` (${listas.length})` : ""}</button>
+      <button class="btn-secundario btn-sm" id="btnRotulosSel" ${sel.length && !guiasOcupado ? "" : "disabled"}
+              title="Un rótulo de 10 × 10 cm por cada unidad del envío">
+        🏷 Rótulos${sel.length ? ` (${sel.reduce((n, g) => n + unidadesRotulo(g), 0)})` : ""}</button>
     </div>
     ${mensaje ? `<div class="guias-acciones-msg">${mensaje}</div>` : ""}
     ${guiasCfg.bloquear && bloqueadas ? `<div class="guias-acciones-nota">🔒 ${bloqueadas} guía(s) quedan disponibles para PDF cuando TRANSIMPERIO asigne el valor.</div>` : ""}
@@ -989,6 +994,8 @@ function renderAccionesGuias(mensaje) {
     () => generarGuiasLote(porGenerar.map(g => String(g.EnvioID)), true));
   document.getElementById("btnDescargarSel").addEventListener("click",
     () => descargarGuias(listas.map(g => String(g.EnvioID))));
+  document.getElementById("btnRotulosSel").addEventListener("click",
+    () => verRotulos(sel.map(g => String(g.EnvioID))));
 }
 
 // Genera en tandas (el backend acepta pocas por llamada) y actualiza la tabla
@@ -1169,6 +1176,211 @@ function cerrarVisorPdf() {
   if (v.dataset.url) setTimeout(() => URL.revokeObjectURL(v.dataset.url), 60000); // por si se abrió en otra pestaña
   v.remove();
   document.removeEventListener("keydown", escVisorPdf);
+}
+
+// ════════════════════════════════════════════════════════════
+// RÓTULOS (etiqueta 10 × 10 cm, uno por cada unidad del envío)
+// Se arman aquí mismo en el navegador con pdf-lib: no usan la cuota
+// de Google ni se guardan en Drive.
+// ════════════════════════════════════════════════════════════
+const ROTULO = {
+  lado: 283.46,           // 10 cm en puntos (1 cm = 28,346 pt)
+  margen: 9,
+  maxPorPdf: 500          // rótulos máximo en un solo PDF
+};
+
+function unidadesRotulo(g) {
+  const n = Math.floor(Number(g && g.Unidades));
+  return n > 0 ? n : 1;
+}
+
+// Code 128 (mismo método que el código de barras de las guías). Devuelve anchos de barras/espacios.
+const CODE128 = ["212222","222122","222221","121223","121322","131222","122213","122312","132212","221213",
+  "221312","231212","112232","122132","122231","113222","123122","123221","223211","221132","221231","213212",
+  "223112","312131","311222","321122","321221","312212","322112","322211","212123","212321","232121","111323",
+  "131123","131321","112313","132113","132311","211313","231113","231311","112133","112331","132131","113123",
+  "113321","133121","313121","211331","231131","213113","213311","213131","311123","311321","331121","312113",
+  "312311","332111","314111","221411","431111","111224","111422","121124","121421","141122","141221","112214",
+  "112412","122114","122411","142112","142211","241211","221114","413111","241112","134111","111242","121142",
+  "121241","114212","124112","124211","411212","421112","421211","212141","214121","412121","111143","111341",
+  "131141","114113","114311","411113","411311","113141","114131","311141","411131","211412","211214","211232","2331112"];
+
+function code128Anchos(texto) {
+  const t = String(texto);
+  let cod;
+  if (/^\d+$/.test(t) && t.length % 2 === 0) {
+    cod = [105];
+    for (let i = 0; i < t.length; i += 2) cod.push(Number(t.substr(i, 2)));
+  } else {
+    cod = [104];
+    for (const ch of t) {
+      const c = ch.charCodeAt(0);
+      cod.push(c >= 32 && c <= 127 ? c - 32 : 31);   // carácter raro → "?"
+    }
+  }
+  let suma = cod[0];
+  for (let i = 1; i < cod.length; i++) suma += cod[i] * i;
+  cod.push(suma % 103, 106);
+  const anchos = [];
+  cod.forEach(c => CODE128[c].split("").forEach(d => anchos.push(Number(d))));
+  return anchos;
+}
+
+// Texto seguro para las fuentes estándar del PDF (quita emojis y símbolos raros)
+function txtPdf(v) {
+  return String(v ?? "").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-")
+    .replace(/[^\x20-\x7E -ÿ…]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// Parte un texto en líneas que quepan en "ancho"; corta con "…" si pasa de maxLineas
+function lineasPdf(fuente, texto, tam, ancho, maxLineas) {
+  const palabras = txtPdf(texto).split(" ").filter(Boolean);
+  const lineas = [];
+  let actual = "";
+  palabras.forEach(p => {
+    const prueba = actual ? actual + " " + p : p;
+    if (fuente.widthOfTextAtSize(prueba, tam) <= ancho) actual = prueba;
+    else { if (actual) lineas.push(actual); actual = p; }
+  });
+  if (actual) lineas.push(actual);
+  if (lineas.length > maxLineas) {
+    lineas.length = maxLineas;
+    let u = lineas[maxLineas - 1];
+    while (u && fuente.widthOfTextAtSize(u + "…", tam) > ancho) u = u.slice(0, -1);
+    lineas[maxLineas - 1] = u + "…";
+  }
+  return lineas.map(l => {   // una palabra sola demasiado larga: se recorta
+    while (fuente.widthOfTextAtSize(l, tam) > ancho && l.length > 1) l = l.slice(0, -2) + "…";
+    return l;
+  });
+}
+
+async function crearPdfRotulos(guias) {
+  const { PDFDocument, StandardFonts, rgb } = await cargarPdfLib();
+  const pdf = await PDFDocument.create();
+  pdf.setTitle("Rótulos TRANSIMPERIO");
+  const negrita = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const normal = await pdf.embedFont(StandardFonts.Helvetica);
+  const negro = rgb(0, 0, 0);
+  const L = ROTULO.lado, M = ROTULO.margen, W = L - 2 * M;
+
+  const centro = (pag, texto, y, fuente, tam) => {
+    const t = txtPdf(texto);
+    pag.drawText(t, { x: (L - fuente.widthOfTextAtSize(t, tam)) / 2, y, size: tam, font: fuente, color: negro });
+  };
+  const linea = (pag, y) => pag.drawLine({ start: { x: M, y }, end: { x: L - M, y }, thickness: 1, color: negro });
+  const ajustar = (fuente, texto, tamMax, ancho) => {   // reduce la letra hasta que quepa en una línea
+    let t = tamMax;
+    while (t > 7 && fuente.widthOfTextAtSize(txtPdf(texto), t) > ancho) t -= 0.5;
+    return t;
+  };
+
+  guias.forEach(g => {
+    const total = unidadesRotulo(g);
+    for (let n = 1; n <= total; n++) {
+      const p = pdf.addPage([L, L]);
+      p.drawRectangle({ x: M / 2, y: M / 2, width: L - M, height: L - M, borderColor: negro, borderWidth: 1.5 });
+
+      // Encabezado
+      let y = L - M - 15;
+      centro(p, "TRANSIMPERIO SAS - RÓTULO", y, negrita, 12);
+      y -= 8; linea(p, y);
+
+      // Guía y pago
+      y -= 22;
+      const tGuia = ajustar(negrita, "GUÍA: " + g.EnvioID, 18, W);
+      centro(p, "GUÍA: " + g.EnvioID, y, negrita, tGuia);
+      y -= 15;
+      centro(p, "PAGO: " + (g.TipoPago || "-"), y, negrita, 11);
+      y -= 9; linea(p, y);
+
+      // Destinatario (hasta 2 líneas) y destino
+      y -= 12;
+      centro(p, "DESTINATARIO", y, normal, 7.5);
+      lineasPdf(negrita, g.Destinatario || "-", 12, W - 6, 2).forEach(l => { y -= 14; centro(p, l, y, negrita, 12); });
+      y -= 13;
+      centro(p, "DESTINO", y, normal, 7.5);
+      y -= 17;
+      centro(p, g.Destino || "-", y, negrita, ajustar(negrita, g.Destino || "-", 16, W - 6));
+      y -= 9; linea(p, y);
+
+      // Unidad X de N
+      y -= 20;
+      centro(p, `UNIDAD: ${n} de ${total}`, y, negrita, 15);
+      y -= 9; linea(p, y);
+
+      // Código de barras (vectorial: nítido en impresora térmica)
+      const anchos = code128Anchos(g.EnvioID);
+      const modulos = anchos.reduce((a, b) => a + b, 0);
+      const mod = Math.min(2.2, (W - 20) / modulos);
+      const anchoCod = modulos * mod;
+      const altoCod = Math.max(26, y - M - 26);
+      let x = (L - anchoCod) / 2;
+      const yCod = M + 18;
+      anchos.forEach((a, i) => {
+        if (i % 2 === 0) p.drawRectangle({ x, y: yCod, width: a * mod, height: Math.min(altoCod, 60), color: negro });
+        x += a * mod;
+      });
+      centro(p, g.EnvioID, M + 6, normal, 9);
+    }
+  });
+  return await pdf.saveAsBase64();
+}
+
+async function verRotulos(ids) {
+  if (!ids.length || guiasOcupado) return;
+  const guias = ids.map(id => guiasData.find(g => String(g.EnvioID) === String(id))).filter(Boolean);
+  const total = guias.reduce((n, g) => n + unidadesRotulo(g), 0);
+  if (total > ROTULO.maxPorPdf) {
+    renderAccionesGuias(`<span class="txt-error">⚠️ Son ${total} rótulos; el máximo por PDF es ${ROTULO.maxPorPdf}. Selecciona menos guías.</span>`);
+    return;
+  }
+  const sinUnidades = guias.filter(g => !(Number(g.Unidades) > 0)).map(g => g.EnvioID);
+  const titulo = guias.length === 1 ? `Rótulos guía ${guias[0].EnvioID}` : `Rótulos (${guias.length} guías)`;
+  const f = new Date();
+  const fecha = `${f.getFullYear()}${String(f.getMonth() + 1).padStart(2, "0")}${String(f.getDate()).padStart(2, "0")}`;
+  const nombre = guias.length === 1 ? `Rotulos-${guias[0].EnvioID}.pdf` : `Rotulos-${fecha}-${guias.length}guias.pdf`;
+
+  guiasOcupado = true;
+  renderAccionesGuias(`⏳ Armando ${total} rótulo(s)…`);
+  try {
+    const base64 = await crearPdfRotulos(guias);
+    mostrarPdfEnVisor(titulo, base64, nombre);
+    renderAccionesGuias(`✅ ${total} rótulo(s) listos.` + (sinUnidades.length
+      ? ` <span class="txt-error">⚠️ Sin unidades registradas (se hizo 1 rótulo): ${sinUnidades.join(", ")}</span>` : ""));
+  } catch (err) {
+    console.error("Rótulos:", err);
+    renderAccionesGuias(`<span class="txt-error">⚠️ No se pudieron crear los rótulos: ${escHtml(err.message)}</span>`);
+  } finally {
+    guiasOcupado = false;
+  }
+}
+
+// Visor para un PDF que ya está en memoria (rótulos)
+function mostrarPdfEnVisor(titulo, base64, nombre) {
+  cerrarVisorPdf();
+  const url = urlPdf(base64);
+  const visor = document.createElement("div");
+  visor.id = "visorPdf";
+  visor.className = "visor-pdf";
+  visor.dataset.url = url;
+  visor.innerHTML = `
+    <div class="visor-pdf-caja" role="dialog" aria-modal="true" aria-label="${escHtml(titulo)}">
+      <div class="visor-pdf-barra">
+        <strong>${escHtml(titulo)}</strong>
+        <div class="visor-pdf-botones">
+          <a class="btn-mini btn-mini-sec" href="${url}" target="_blank" rel="noopener">↗ Abrir para imprimir</a>
+          <button class="btn-mini" id="visorDescargar">⬇ Descargar</button>
+        </div>
+        <button class="visor-pdf-cerrar" id="visorCerrar" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="visor-pdf-cuerpo"><iframe src="${url}" title="${escHtml(titulo)}"></iframe></div>
+    </div>`;
+  document.body.appendChild(visor);
+  visor.addEventListener("click", e => { if (e.target === visor) cerrarVisorPdf(); });
+  document.getElementById("visorCerrar").addEventListener("click", cerrarVisorPdf);
+  document.getElementById("visorDescargar").addEventListener("click", () => guardarPdf(base64, nombre));
+  document.addEventListener("keydown", escVisorPdf);
 }
 
 // ── Botón "Actualizar": vuelve a pedir las guías sin recargar la página ──
