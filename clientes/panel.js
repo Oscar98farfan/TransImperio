@@ -144,6 +144,7 @@ function cargarVista(nombre) {
     case "carga-masiva": renderCargaMasiva(contenido); break;
     case "nuevo-envio": renderNuevoEnvio(contenido); break;
     case "mis-guias": renderMisGuias(contenido); break;
+    case "dashboard": renderDashboard(contenido); break;
     case "seguimiento": renderSeguimiento(contenido); break;
     case "mi-cuenta": renderMiCuenta(contenido); break;
     default: contenido.innerHTML = "<p>Vista no encontrada.</p>";
@@ -691,20 +692,7 @@ function renderPanelGuias(contenedor) {
         ${destinos.map(d => `<option value="${d}">${d}</option>`).join("")}
       </select>
 
-      ${guiasCfg.multi ? `
-      <div class="filtro-multi" id="filtroClientes">
-        <button type="button" class="filtro-select filtro-multi-btn" id="btnFiltroClientes" aria-expanded="false">
-          <span id="txtFiltroClientes">Todos los clientes</span><span class="filtro-multi-flecha">▾</span>
-        </button>
-        <div class="filtro-multi-panel" id="panelFiltroClientes" hidden>
-          <input type="text" class="filtro-multi-buscar" id="buscarFiltroClientes" placeholder="🔎 Buscar cliente…" autocomplete="off">
-          <div class="filtro-multi-acciones">
-            <button type="button" class="btn-link" data-accion="visibles">✓ Marcar los que se ven</button>
-            <button type="button" class="btn-link" data-accion="ninguno">✕ Quitar todos</button>
-          </div>
-          <div class="filtro-multi-lista" id="listaFiltroClientes"></div>
-        </div>
-      </div>` : ""}
+      ${guiasCfg.multi ? htmlSelectorClientes("g") : ""}
 
       <input type="date" id="filtroDesde" class="filtro-fecha" title="Desde">
       <input type="date" id="filtroHasta" class="filtro-fecha" title="Hasta">
@@ -719,7 +707,7 @@ function renderPanelGuias(contenedor) {
 
   document.getElementById("guiasTablaWrap").addEventListener("click", onClickTablaGuias);
   document.getElementById("btnActualizarGuias").addEventListener("click", () => actualizarGuias({ forzar: true }));
-  if (guiasCfg.multi) iniciarFiltroClientes();
+  if (guiasCfg.multi) iniciarSelectorClientes("g", filtroClientesSel, () => { paginaGuias = 1; aplicarFiltrosGuias(); });
   document.getElementById("guiasTablaWrap").addEventListener("change", onCambioCheckGuias);
 
   ["filtroTexto", "filtroEstado", "filtroDestino", "filtroDesde", "filtroHasta", "filtroCliente"]
@@ -736,7 +724,7 @@ function renderPanelGuias(contenedor) {
     document.getElementById("filtroDesde").value = "";
     document.getElementById("filtroHasta").value = "";
     filtroClientesSel.clear();
-    if (guiasCfg.multi) renderListaFiltroClientes();
+    refrescarSelectorClientes("g");
     paginaGuias = 1;
     aplicarFiltrosGuias();
   });
@@ -1410,7 +1398,7 @@ async function actualizarGuias(opc) {
     const destinos = [...new Set(guiasData.map(g => g.Destino).filter(Boolean))].sort();
     sel.innerHTML = `<option value="">Todos los destinos</option>` +
       destinos.map(d => `<option value="${d}" ${d === actual ? "selected" : ""}>${d}</option>`).join("");
-    if (document.getElementById("listaFiltroClientes")) renderListaFiltroClientes();
+    refrescarSelectorClientes("g");
 
     aplicarFiltrosGuias();  // conserva los filtros y la página actual
     document.getElementById("guiasActualizado").textContent = textoActualizado();
@@ -1468,9 +1456,11 @@ async function cargarSelectorClientes() {
 }
 
 // Opciones del filtro "Cliente" en Mis Guías (a partir de las guías cargadas)
-// ── Filtro de clientes con selección múltiple (administrador / comercial) ──
-const filtroClientesSel = new Set();   // vacío = todos los clientes
-let filtroClientesOyente = false;
+// ── Selector de clientes con selección múltiple (administrador / comercial) ──
+// Se usa en Mis Guías (prefijo "g") y en el Dashboard (prefijo "d").
+const filtroClientesSel = new Set();   // Mis Guías · vacío = todos los clientes
+const selectoresClientes = {};         // prefijo → { sel, onCambio }
+let selectorClientesOyente = false;
 
 function clientesDeGuias() {
   const mapa = {};
@@ -1482,83 +1472,101 @@ function clientesDeGuias() {
   return Object.values(mapa).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 
-function iniciarFiltroClientes() {
-  const btn = document.getElementById("btnFiltroClientes");
-  const panel = document.getElementById("panelFiltroClientes");
-  const buscar = document.getElementById("buscarFiltroClientes");
+function htmlSelectorClientes(p) {
+  return `
+    <div class="filtro-multi" id="${p}SelClientes">
+      <button type="button" class="filtro-select filtro-multi-btn" id="${p}BtnClientes" aria-expanded="false">
+        <span id="${p}TxtClientes">Todos los clientes</span><span class="filtro-multi-flecha">▾</span>
+      </button>
+      <div class="filtro-multi-panel" id="${p}PanelClientes" hidden>
+        <input type="text" class="filtro-multi-buscar" id="${p}BuscarClientes" placeholder="🔎 Buscar cliente…" autocomplete="off">
+        <div class="filtro-multi-acciones">
+          <button type="button" class="btn-link" data-accion="visibles">✓ Marcar los que se ven</button>
+          <button type="button" class="btn-link" data-accion="ninguno">✕ Quitar todos</button>
+        </div>
+        <div class="filtro-multi-lista" id="${p}ListaClientes"></div>
+      </div>
+    </div>`;
+}
+
+function iniciarSelectorClientes(p, sel, onCambio) {
+  const btn = document.getElementById(p + "BtnClientes");
+  if (!btn) return;
+  selectoresClientes[p] = { sel, onCambio };
+  const panel = document.getElementById(p + "PanelClientes");
+  const buscar = document.getElementById(p + "BuscarClientes");
+  const cambio = () => { textoSelectorClientes(p); onCambio(); };
 
   btn.addEventListener("click", () => {
     panel.hidden = !panel.hidden;
     btn.setAttribute("aria-expanded", String(!panel.hidden));
-    if (!panel.hidden) { buscar.value = ""; renderListaFiltroClientes(); buscar.focus(); }
+    if (!panel.hidden) { buscar.value = ""; refrescarSelectorClientes(p); buscar.focus(); }
   });
-  buscar.addEventListener("input", renderListaFiltroClientes);
+  buscar.addEventListener("input", () => refrescarSelectorClientes(p));
   buscar.addEventListener("keydown", e => { if (e.key === "Escape") { panel.hidden = true; btn.focus(); } });
 
-  document.getElementById("listaFiltroClientes").addEventListener("change", e => {
+  document.getElementById(p + "ListaClientes").addEventListener("change", e => {
     const cb = e.target.closest("input[type=checkbox]");
     if (!cb) return;
-    if (cb.checked) filtroClientesSel.add(cb.value); else filtroClientesSel.delete(cb.value);
-    cambioFiltroClientes();
+    if (cb.checked) sel.add(cb.value); else sel.delete(cb.value);
+    cambio();
   });
 
   panel.querySelector(".filtro-multi-acciones").addEventListener("click", e => {
     const accion = e.target.closest("[data-accion]");
     if (!accion) return;
-    if (accion.dataset.accion === "ninguno") filtroClientesSel.clear();
-    else document.querySelectorAll("#listaFiltroClientes input[type=checkbox]").forEach(cb => filtroClientesSel.add(cb.value));
-    renderListaFiltroClientes();
-    cambioFiltroClientes();
+    if (accion.dataset.accion === "ninguno") sel.clear();
+    else document.querySelectorAll(`#${p}ListaClientes input[type=checkbox]`).forEach(cb => sel.add(cb.value));
+    refrescarSelectorClientes(p);
+    cambio();
   });
 
-  // Cierra al hacer clic fuera (el oyente se agrega una sola vez)
-  if (filtroClientesOyente) { actualizarTextoFiltroClientes(); return; }
-  filtroClientesOyente = true;
-  document.addEventListener("click", e => {
-    const caja = document.getElementById("filtroClientes");
-    const p = document.getElementById("panelFiltroClientes");
-    if (caja && p && !p.hidden && !caja.contains(e.target)) {
-      p.hidden = true;
-      document.getElementById("btnFiltroClientes").setAttribute("aria-expanded", "false");
-    }
-  });
-
-  actualizarTextoFiltroClientes();
+  // Cierra cualquier selector abierto al hacer clic fuera (un solo oyente para todos)
+  if (!selectorClientesOyente) {
+    selectorClientesOyente = true;
+    document.addEventListener("click", e => {
+      document.querySelectorAll(".filtro-multi").forEach(caja => {
+        const pan = caja.querySelector(".filtro-multi-panel");
+        if (pan && !pan.hidden && !caja.contains(e.target)) {
+          pan.hidden = true;
+          const b = caja.querySelector(".filtro-multi-btn");
+          if (b) b.setAttribute("aria-expanded", "false");
+        }
+      });
+    });
+  }
+  textoSelectorClientes(p);
 }
 
-function renderListaFiltroClientes() {
-  const lista = document.getElementById("listaFiltroClientes");
-  if (!lista) return;
-  const q = normalizarTxt(document.getElementById("buscarFiltroClientes").value).replace(/[^a-z0-9]/g, "");
+function refrescarSelectorClientes(p) {
+  const lista = document.getElementById(p + "ListaClientes");
+  const cfg = selectoresClientes[p];
+  if (!lista || !cfg) return;
+  const q = normalizarTxt(document.getElementById(p + "BuscarClientes").value).replace(/[^a-z0-9]/g, "");
   const clientes = clientesDeGuias().filter(c => !q || normalizarTxt(c.nombre).replace(/[^a-z0-9]/g, "").includes(q));
   lista.innerHTML = clientes.length
     ? clientes.map(c => `
         <label class="filtro-multi-item">
-          <input type="checkbox" value="${escHtml(c.id)}" ${filtroClientesSel.has(c.id) ? "checked" : ""}>
+          <input type="checkbox" value="${escHtml(c.id)}" ${cfg.sel.has(c.id) ? "checked" : ""}>
           <span class="filtro-multi-nombre">${escHtml(c.nombre)}</span>
           <span class="filtro-multi-num">${c.total}</span>
         </label>`).join("")
     : `<div class="filtro-multi-vacio">Sin coincidencias</div>`;
-  actualizarTextoFiltroClientes();
+  textoSelectorClientes(p);
 }
 
-function actualizarTextoFiltroClientes() {
-  const txt = document.getElementById("txtFiltroClientes");
-  if (!txt) return;
-  const n = filtroClientesSel.size;
+function textoSelectorClientes(p) {
+  const txt = document.getElementById(p + "TxtClientes");
+  const cfg = selectoresClientes[p];
+  if (!txt || !cfg) return;
+  const n = cfg.sel.size;
   if (!n) { txt.textContent = "Todos los clientes"; return; }
   if (n === 1) {
-    const c = clientesDeGuias().find(x => filtroClientesSel.has(x.id));
+    const c = clientesDeGuias().find(x => cfg.sel.has(x.id));
     txt.textContent = c ? c.nombre : "1 cliente";
     return;
   }
   txt.textContent = n + " clientes";
-}
-
-function cambioFiltroClientes() {
-  actualizarTextoFiltroClientes();
-  paginaGuias = 1;
-  aplicarFiltrosGuias();
 }
 
 function escHtml(v) {
