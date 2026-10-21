@@ -197,7 +197,7 @@ function renderCargaMasiva(contenedor) {
       <br><br>
       <strong>Valores:</strong><br>
       ValorEnvio: llénalo si manejas lista de precios; si lo dejas vacío lo asigna TRANSIMPERIO ·
-      ValorDeclarado mínimo $30.000 (vacío = $35.000) · Seguro = 0,5 % del declarado, mínimo $6.000 ·
+      ValorDeclarado mínimo $30.000 (vacío = $35.000) · <span id="textoSeguro">${textoReglaSeguro(clienteCargaActual())}</span> ·
       Total = Envío + Seguro · Abono solo si el TipoPago es Crédito.
       <br><br>
       <strong>TipoPago:</strong> Contado · Crédito · Contra entrega &nbsp;·&nbsp;
@@ -208,6 +208,14 @@ function renderCargaMasiva(contenedor) {
   `;
 
   if (esMultiClienteWeb()) cargarSelectorClientes();
+
+  // Al cambiar el cliente, el seguro se recalcula con SU tarifa
+  const selCli = document.getElementById("cargaCliente");
+  if (selCli) selCli.addEventListener("change", () => {
+    const t = document.getElementById("textoSeguro");
+    if (t) t.textContent = textoReglaSeguro(selCli.value);
+    if (datosCarga.length && ultimoArchivoCarga) validarYMostrarPrevia(ultimoArchivoCarga);
+  });
 
   // Drag & drop
   const zone = document.getElementById("uploadZone");
@@ -286,7 +294,37 @@ function fechaWeb(v) {
   return null;
 }
 
-function calcularValoresWeb(fila) {
+// ── Tarifa de seguro por cliente (hoja Usuarios: CostoManejo_COP / CostoManejo_Por) ──
+// La manda el servidor: en el login (cliente) o en la lista de clientes (R1 / R3).
+let ultimoArchivoCarga = "";
+
+function clienteCargaActual() {
+  const sel = document.getElementById("cargaCliente");
+  return sel ? sel.value : ((usuario && usuario.ClienteID) || "");
+}
+
+function tarifaWeb(clienteID) {
+  let t = null;
+  if (clienteID && listaClientesCache) {
+    const c = listaClientesCache.find(x => x.ClienteID === clienteID);
+    if (c && c.Seguro) t = c.Seguro;
+  }
+  if (!t && usuario && usuario.TarifaSeguro && (!clienteID || clienteID === usuario.ClienteID)) t = usuario.TarifaSeguro;
+  return {
+    minimo: t && Number(t.minimo) >= 0 ? Number(t.minimo) : REGLAS_VALORES.seguroMinimo,
+    porcentaje: t && Number(t.porcentaje) >= 0 ? Number(t.porcentaje) : REGLAS_VALORES.seguro
+  };
+}
+
+function textoReglaSeguro(clienteID) {
+  if (esMultiClienteWeb() && !clienteID) return "Seguro según la tarifa del cliente (normalmente 0,5 % del declarado, mínimo $6.000)";
+  const t = tarifaWeb(clienteID);
+  const pct = (Math.round(t.porcentaje * 100000) / 1000).toLocaleString("es-CO");
+  return `Seguro = ${pct} % del declarado, mínimo ${formatearPesos(t.minimo)}`;
+}
+
+function calcularValoresWeb(fila, tarifa) {
+  tarifa = tarifa || tarifaWeb(clienteCargaActual());
   const envio = montoWeb(fila.ValorEnvio, "ValorEnvio");
   let declarado = montoWeb(fila.ValorDeclarado, "ValorDeclarado");
   const abono = montoWeb(fila.Abono, "Abono");
@@ -298,7 +336,7 @@ function calcularValoresWeb(fila) {
     throw new Error("Abono solo aplica cuando el TipoPago es Crédito");
   if (credito && abono !== null && abono > 0 && !(envio > 0))
     throw new Error("Si el pago es Crédito con Abono, el ValorEnvio es obligatorio");
-  const seguro = Math.max(REGLAS_VALORES.seguroMinimo, Math.round(declarado * REGLAS_VALORES.seguro));
+  const seguro = Math.max(tarifa.minimo, Math.round(declarado * tarifa.porcentaje));
   const total = (envio || 0) + seguro;
   const ab = credito ? (abono || 0) : 0;
   if (envio !== null && envio > 0 && ab > total)
@@ -345,6 +383,7 @@ function procesarArchivo(archivo) {
 
 // ── Validar columnas y mostrar previa ──────────────────────
 function validarYMostrarPrevia(nombreArchivo) {
+  ultimoArchivoCarga = nombreArchivo;
   const columnas = Object.keys(datosCarga[0]);
   const faltantes = COLUMNAS_REQUERIDAS.filter(c => !columnas.includes(c));
 
@@ -1450,6 +1489,9 @@ async function cargarSelectorClientes() {
       clientes.map(c => `<option value="${escHtml(c.ClienteID)}">${escHtml(c.Nombre || c.ClienteID)}</option>`).join("");
     if (clientes.length === 1) sel.value = clientes[0].ClienteID;          // un solo cliente: queda elegido
     if (clientePreseleccionado) { sel.value = clientePreseleccionado; clientePreseleccionado = ""; }
+    const t = document.getElementById("textoSeguro");
+    if (t) t.textContent = textoReglaSeguro(sel.value);
+    if (document.getElementById("nuevoCalculados")) recalcularNuevo();
   } catch (err) {
     if (err.message !== "Sesión expirada") sel.innerHTML = `<option value="">⚠️ ${escHtml(err.message)}</option>`;
   }
@@ -1575,6 +1617,7 @@ function escHtml(v) {
 
 // ── Formulario de edición ──
 let edicionOriginal = null;
+let edicionTarifa = null;      // tarifa de seguro del cliente de la guía que se edita
 
 async function abrirEditorGuia(id) {
   cerrarEditorGuia();
@@ -1598,6 +1641,7 @@ async function abrirEditorGuia(id) {
 
   try {
     const data = await apiCall({ accion: "detalleGuia", guia: id });
+    edicionTarifa = data && data.tarifaSeguro ? data.tarifaSeguro : null;
     if (!document.getElementById("modalEditar")) return;
     if (!data.ok) {
       document.getElementById("editarCuerpo").innerHTML =
@@ -1690,7 +1734,7 @@ function recalcularEdicion() {
   if (!caja) return;
   const d = datosFormularioEdicion();
   try {
-    const v = calcularValoresWeb(d);
+    const v = calcularValoresWeb(d, edicionTarifa);
     caja.innerHTML = `
       <span>Seguro: <b>${formatearPesos(v.ValorSeguro)}</b></span>
       <span>Total: <b>${formatearPesos(v.ValorTotal)}</b></span>
@@ -1718,7 +1762,7 @@ async function guardarEdicionGuia(e) {
   });
   if (!Object.keys(cambios).length) { err.textContent = "No has cambiado nada."; return; }
 
-  try { calcularValoresWeb(d); } catch (ex) { err.textContent = ex.message; return; }
+  try { calcularValoresWeb(d, edicionTarifa); } catch (ex) { err.textContent = ex.message; return; }
 
   const btn = document.getElementById("edGuardar");
   btn.disabled = true;
